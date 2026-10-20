@@ -36,9 +36,10 @@ Liquidation zerlegt jedes Eingangssignal in Grains und baut es neu zusammen: imm
 Fertige Builds gibt es unter **Actions → neuester Lauf → Artifacts** (`Liquidation-Windows`, `Liquidation-macOS`).
 
 - **Windows:** `Liquidation.vst3` nach `C:\Program Files\Common Files\VST3\` kopieren.
-- **macOS:** `Liquidation.vst3` nach `~/Library/Audio/Plug-Ins/VST3/` und `Liquidation.component` nach `~/Library/Audio/Plug-Ins/Components/`.
-  Die Builds sind nicht signiert, deshalb einmalig im Terminal:
-  `xattr -cr ~/Library/Audio/Plug-Ins/VST3/Liquidation.vst3 ~/Library/Audio/Plug-Ins/Components/Liquidation.component`
+- **macOS:** Im Artifact liegen `Liquidation-VST3-mac.zip`, `Liquidation-AU-mac.zip` und `Liquidation-App-mac.zip`. Die ZIPs per Doppelklick entpacken (nicht mit einem anderen Tool, sonst gehen die Rechte verloren).
+  `Liquidation.vst3` nach `~/Library/Audio/Plug-Ins/VST3/`, `Liquidation.component` nach `~/Library/Audio/Plug-Ins/Components/`.
+  Die Builds sind nur ad-hoc signiert, deshalb einmalig im Terminal den Download-Vermerk entfernen:
+  `xattr -cr ~/Library/Audio/Plug-Ins/VST3/Liquidation.vst3 ~/Library/Audio/Plug-Ins/Components/Liquidation.component /Applications/Liquidation.app`
 
 In Cubase danach den Plug-in-Manager neu scannen lassen. Liquidation erscheint als Insert-Effekt.
 

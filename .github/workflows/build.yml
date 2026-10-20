@@ -68,6 +68,21 @@ jobs:
           if [ -d "$ART/Standalone/Liquidation.app" ]; then cp -R "$ART/Standalone/Liquidation.app" dist/; fi
           cp README.md dist/
 
+      - name: Sign and package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd dist
+          # ad-hoc signature so macOS / Cubase accept the bundles after xattr -cr
+          for b in Liquidation.vst3 Liquidation.component Liquidation.app; do
+            [ -e "$b" ] && codesign --force --deep --sign - "$b" && codesign --verify --deep --strict "$b"
+          done
+          # ditto keeps executable bits and symlinks (upload-artifact would strip them)
+          ditto -c -k --keepParent Liquidation.vst3 Liquidation-VST3-mac.zip
+          ditto -c -k --keepParent Liquidation.component Liquidation-AU-mac.zip
+          ditto -c -k --keepParent Liquidation.app Liquidation-App-mac.zip
+          rm -rf Liquidation.vst3 Liquidation.component Liquidation.app
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
