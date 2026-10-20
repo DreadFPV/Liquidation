@@ -73,6 +73,13 @@ jobs:
         shell: bash
         run: |
           cd dist
+          # the bundles must run on macOS 11 and later
+          for b in Liquidation.vst3 Liquidation.component Liquidation.app; do
+            v=$(plutil -extract LSMinimumSystemVersion raw "$b/Contents/Info.plist" 2>/dev/null || echo "none")
+            echo "$b minimum macOS: $v"
+            vtool -show-build "$b/Contents/MacOS/Liquidation" | grep -E "minos|platform" | head -4
+            if [ "$v" != "11.0" ] && [ "$v" != "none" ]; then echo "Wrong minimum macOS version"; exit 1; fi
+          done
           # ad-hoc signature so macOS / Cubase accept the bundles after xattr -cr
           for b in Liquidation.vst3 Liquidation.component Liquidation.app; do
             [ -e "$b" ] && codesign --force --deep --sign - "$b" && codesign --verify --deep --strict "$b"
