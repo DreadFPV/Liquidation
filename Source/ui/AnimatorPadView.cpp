@@ -67,6 +67,30 @@ void AnimatorPadView::paint (juce::Graphics& g)
     g.setColour (juce::Colours::white);
     g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (c));
 
+    // hint when the macros do not drive anything yet
+    {
+        bool used[3] { false, false, false };
+        for (int slot = 1; slot <= numMatrixSlots; ++slot)
+        {
+            const int src = (int) std::lround (s.getRawParameterValue (id::mx (slot, "Src"))->load());
+            const int dst = (int) std::lround (s.getRawParameterValue (id::mx (slot, "Dst"))->load());
+            if (src >= 1 && src <= 2 && dst > 0) used[src] = true;
+        }
+        if (! used[1] || ! used[2])
+        {
+            juce::String hint = (! used[1] && ! used[2]) ? "Macro 1 und 2 sind nicht belegt."
+                              : (! used[1] ? "Macro 1 (links/rechts) ist nicht belegt."
+                                           : "Macro 2 (oben/unten) ist nicht belegt.");
+            hint << "\nUnten \"Macro\" auf einen Knopf ziehen.";
+            auto box = r.reduced (14.0f).removeFromTop (40.0f);
+            g.setColour (col::bg.withAlpha (0.85f));
+            g.fillRoundedRectangle (box, 5.0f);
+            g.setFont (font (11.0f));
+            g.setColour (col::amber);
+            g.drawFittedText (hint, box.reduced (6.0f, 2.0f).toNearestInt(), juce::Justification::centred, 2);
+        }
+    }
+
     g.setFont (font (10.5f, true));
     g.setColour (col::dim);
     g.drawText ("MACRO 1  >", r.reduced (8.0f).removeFromBottom (14.0f), juce::Justification::bottomRight);

@@ -31,6 +31,7 @@ LiquidationProcessor::LiquidationProcessor()
                 s[(size_t) i] = (i % 4 == 0) ? 1.0f : ((i % 3 == 0) ? 0.6f : (float) ((i * 7) % 11) / 11.0f);
     };
     modSystem.prepare (48000.0);
+    presets.load (0);   // fresh instances start from "Init" (macros pre-routed)
 }
 
 bool LiquidationProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const

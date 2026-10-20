@@ -72,7 +72,10 @@ namespace
 const std::vector<FactoryPreset>& PresetManager::factory()
 {
     static const std::vector<FactoryPreset> list {
-        { "Init", "Init", [] (PresetWriter&) {} },
+        { "Init", "Init", [] (PresetWriter& w) {
+            // XY pad does something from the start: X = stretch & spray, Y = pitch & detune
+            w.route (1, M1, id::stretch, 0.6f); w.route (2, M1, id::spray, 0.4f);
+            w.route (3, M2, id::pitch, semis (7)); w.route (4, M2, id::detune, 0.5f); } },
 
         // ---------------------------------------------------------- Harmonic
         { "Fifth Choir", "Harmonic", [] (PresetWriter& w) {

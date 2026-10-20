@@ -840,25 +840,33 @@ void ModBar::resized()
 
 void ModBar::update()
 {
+    // which parameters does each source drive?
+    std::array<juce::StringArray, 7> targets;
+    const auto names = modTargetNames();
+    for (int slot = 1; slot <= numMatrixSlots; ++slot)
+    {
+        const int src = choiceOf (ctx, id::mx (slot, "Src"));
+        const int dst = choiceOf (ctx, id::mx (slot, "Dst"));
+        if (src > 0 && src < 7 && dst > 0 && dst < names.size())
+            targets[(size_t) src].addIfNotAlreadyThere (names[dst]);
+    }
+
     for (int s = 1; s <= 6; ++s)
     {
         auto& chip = *chips[(size_t) s - 1];
         chip.setValue (ctx.proc.modSystem.sourceValue[(size_t) s].load());
+        juce::String sub;
+        if (targets[(size_t) s].isEmpty())
+            sub = "nicht belegt - auf Knopf ziehen";
+        else
+            sub = "-> " + targets[(size_t) s].joinIntoString (", ");
         if (s >= 3)
         {
             const int m = s - 2;
             const int type = choiceOf (ctx, id::mod (m, "Type"));
-            juce::String sub = modTypeNames()[type];
-            if (type != modEnvelope)
-                sub << "  " << (flagOf (ctx, id::mod (m, "Sync"))
-                                    ? juce::String (divisions()[(size_t) choiceOf (ctx, id::mod (m, "Div"))].name)
-                                    : juce::String (rawOf (ctx, id::mod (m, "Rate")), 2) + " Hz");
-            chip.setSubtitle (sub);
+            chip.setTooltip (modTypeNames()[type] + ". Ziehen: auf einen Knopf, um ihn zu modulieren. Klick: bearbeiten.");
         }
-        else
-        {
-            chip.setSubtitle ("XY pad / animator");
-        }
+        chip.setSubtitle (sub);
     }
 }
 }
