@@ -289,7 +289,7 @@ PresetManager::PresetManager (juce::AudioProcessorValueTreeState& s) : state (s)
 
 juce::File PresetManager::userFolder() const
 {
-    auto f = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+    auto f = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                  .getChildFile ("JustCreateit").getChildFile ("Liquidation").getChildFile ("Presets");
     f.createDirectory();
     return f;
@@ -297,9 +297,16 @@ juce::File PresetManager::userFolder() const
 
 juce::Array<juce::File> PresetManager::userPresets() const
 {
+    if (! userCacheValid) const_cast<PresetManager*> (this)->rescanUserPresets();
+    return userCache;
+}
+
+void PresetManager::rescanUserPresets()
+{
     auto files = userFolder().findChildFiles (juce::File::findFiles, false, "*.liqpreset");
     files.sort();
-    return files;
+    userCache = files;
+    userCacheValid = true;
 }
 
 juce::StringArray PresetManager::allNames() const
@@ -386,6 +393,7 @@ bool PresetManager::saveUser (const juce::String& name, const juce::ValueTree& f
     if (auto xml = fullState.createXml())
     {
         const bool ok = xml->writeTo (file);
+        rescanUserPresets();
         if (ok)
         {
             currentNameOverride = clean;

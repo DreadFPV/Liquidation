@@ -68,6 +68,8 @@ juce_add_plugin(Liquidation
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_CATEGORIES             Fx Delay Pitch Spatial
     AU_MAIN_TYPE                kAudioUnitType_MusicEffect
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT  "Liquidation processes the audio input in real time."
     COPY_PLUGIN_AFTER_BUILD     FALSE)
 
 

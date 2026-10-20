@@ -45,7 +45,7 @@ In Cubase danach den Plug-in-Manager neu scannen lassen. Liquidation erscheint a
 
 **MIDI-Modus in Cubase:** Eine MIDI-Spur anlegen und deren Ausgang auf „Liquidation“ der Audiospur setzen, Grain Rate Mode auf „MIDI“.
 
-Eigene Presets liegen unter `Dokumente/JustCreateit/Liquidation/Presets`.
+Eigene Presets liegen unter `~/Library/JustCreateit/Liquidation/Presets` (macOS) bzw. `%APPDATA%\JustCreateit\Liquidation\Presets` (Windows).
 
 ## Selbst bauen
 

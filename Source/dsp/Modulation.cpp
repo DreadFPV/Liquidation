@@ -88,7 +88,8 @@ float Modulator::advance (const ModulatorParams& p, int n, double ppq, bool play
 void ModSystem::prepare (double sampleRate)
 {
     for (auto& m : mods) m.prepare (sampleRate);
-    offsets.assign ((size_t) modTargetIds().size(), 0.0f);
+    if (offsets.size() != (size_t) modTargetIds().size())
+        offsets.assign ((size_t) modTargetIds().size(), 0.0f);
     for (auto& s : seqSteps)
         for (int i = 0; i < numSeqSteps; ++i)
             s[(size_t) i] = (i % 4 == 0) ? 1.0f : ((i % 2 == 0) ? 0.5f : 0.15f);

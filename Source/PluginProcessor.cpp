@@ -43,6 +43,7 @@ bool LiquidationProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
 
 void LiquidationProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    const juce::ScopedLock sl (prepareLock);
     sr = sampleRate;
     engine.prepare (sampleRate, subBlock);
     rack.prepare (sampleRate, subBlock);

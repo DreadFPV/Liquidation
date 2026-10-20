@@ -30,6 +30,8 @@ void WaveformDisplay::resized()
 
 void WaveformDisplay::updatePeaks()
 {
+    const juce::ScopedTryLock tl (ctx.proc.prepareLock);
+    if (! tl.isLocked()) return;
     auto& eng = ctx.proc.engine;
     const int64_t ringSize = eng.bufferSize();
     if (ringSize <= blockSize) return;

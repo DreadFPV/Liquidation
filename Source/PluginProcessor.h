@@ -48,6 +48,8 @@ public:
     liq::Animator animator;
 
     std::atomic<double> hostBpm { 120.0 };
+    // held while buffers are (re)allocated; the UI only reads engine buffers under a try-lock
+    juce::CriticalSection prepareLock;
     std::atomic<float> outputLevel { 0.0f };
 
     // the current scale (as used by the engine), for the UI

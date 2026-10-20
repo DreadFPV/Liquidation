@@ -41,7 +41,8 @@ public:
     static const std::vector<FactoryPreset>& factory();
 
     juce::File userFolder() const;
-    juce::Array<juce::File> userPresets() const;
+    juce::Array<juce::File> userPresets() const;   // cached, refreshed by rescanUserPresets()
+    void rescanUserPresets();
 
     // Combined list: factory first, then user presets ("User/<name>").
     juce::StringArray allNames() const;
@@ -65,5 +66,7 @@ private:
     juce::AudioProcessorValueTreeState& state;
     int current = 0;
     juce::String currentNameOverride;
+    juce::Array<juce::File> userCache;
+    bool userCacheValid = false;
 };
 }

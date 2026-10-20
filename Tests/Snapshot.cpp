@@ -61,6 +61,17 @@ int main (int argc, char** argv)
         png.writeImageToStream (img, os);
         std::printf ("wrote %s\n", file.getFullPathName().toRawUTF8());
     }
+    // lifecycle stress: re-prepare while the editor is open, close, reopen
+    proc.prepareToPlay (96000.0, 256);
+    for (int f = 0; f < 10; ++f) { proc.processBlock (buf, midi); juce::MessageManager::getInstance()->runDispatchLoopUntil (35); }
     ed.reset();
+    for (int k = 0; k < 3; ++k)
+    {
+        std::unique_ptr<juce::AudioProcessorEditor> e2 (proc.createEditor());
+        for (int f = 0; f < 5; ++f) { proc.processBlock (buf, midi); juce::MessageManager::getInstance()->runDispatchLoopUntil (35); }
+        proc.prepareToPlay (k % 2 ? 44100.0 : 48000.0, 1024);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    }
+    std::printf ("lifecycle OK\n");
     return 0;
 }

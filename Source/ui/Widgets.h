@@ -66,8 +66,9 @@ private:
     juce::String paramId, label;
     juce::RangedAudioParameter* param = nullptr;
     std::function<juce::String (float)> formatter;
-    std::unique_ptr<APVTS::SliderAttachment> attachment;
+    // order matters: the slider must outlive its attachment
     std::unique_ptr<KnobSlider> ks;
+    std::unique_ptr<APVTS::SliderAttachment> attachment;
     bool dropHover = false;
     float lastMod = 0.0f, lastLive = -1.0f;
 };
