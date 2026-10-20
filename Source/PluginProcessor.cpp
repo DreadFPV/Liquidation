@@ -37,8 +37,11 @@ bool LiquidationProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
 {
     const auto out = layouts.getMainOutputChannelSet();
     const auto in = layouts.getMainInputChannelSet();
-    if (out != juce::AudioChannelSet::stereo()) return false;
-    return in == juce::AudioChannelSet::stereo() || in == juce::AudioChannelSet::mono();
+    const auto ok = [] (const juce::AudioChannelSet& s)
+    { return s == juce::AudioChannelSet::stereo() || s == juce::AudioChannelSet::mono(); };
+    // mono -> mono, mono -> stereo, stereo -> stereo (mono tracks are common for kick / bass)
+    if (! ok (in) || ! ok (out)) return false;
+    return ! (in == juce::AudioChannelSet::stereo() && out == juce::AudioChannelSet::mono());
 }
 
 void LiquidationProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -53,6 +56,7 @@ void LiquidationProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     animator.prepare (sampleRate);
     dryBuffer.setSize (2, std::max (samplesPerBlock, subBlock), false, true, true);
     wetBuffer.setSize (2, std::max (samplesPerBlock, subBlock), false, true, true);
+    monoWork.setSize (2, std::max (samplesPerBlock, subBlock) * 2, false, true, true);
 }
 
 // ----------------------------------------------------------------------------
@@ -212,13 +216,29 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
             for (int nn = 0; nn < 128; ++nn) engine.noteOff (nn);
     }
 
-    // ---- input
-    if (numIn == 1) buffer.copyFrom (1, 0, buffer, 0, 0, numSamples);
-    for (int ch = std::max (numIn, 2); ch < buffer.getNumChannels(); ++ch) buffer.clear (ch, 0, numSamples);
+    // ---- input: always work in stereo internally
+    const int numCh = buffer.getNumChannels();
+    if (numCh == 0) return;
+    float* L;
+    float* R;
+    if (numCh >= 2)
+    {
+        if (numIn == 1) buffer.copyFrom (1, 0, buffer, 0, 0, numSamples);
+        for (int ch = 2; ch < numCh; ++ch) buffer.clear (ch, 0, numSamples);
+        L = buffer.getWritePointer (0);
+        R = buffer.getWritePointer (1);
+    }
+    else
+    {
+        // mono track: process a stereo copy and fold it back down at the end
+        if (monoWork.getNumSamples() < numSamples) monoWork.setSize (2, numSamples, false, false, true);
+        monoWork.copyFrom (0, 0, buffer, 0, 0, numSamples);
+        monoWork.copyFrom (1, 0, buffer, 0, 0, numSamples);
+        L = monoWork.getWritePointer (0);
+        R = monoWork.getWritePointer (1);
+    }
 
     const float inGain = juce::Decibels::decibelsToGain (raw (id::inputGain));
-    float* L = buffer.getWritePointer (0);
-    float* R = buffer.getWritePointer (1);
 
     // ---- modulator / animator settings (block rate)
     std::array<ModulatorParams, numModulators> mp;
@@ -321,6 +341,12 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
 
         for (int i = 0; i < n; ++i)
             outPeak = std::max (outPeak, std::max (std::abs (L[start + i]), std::abs (R[start + i])));
+    }
+
+    if (numCh == 1)
+    {
+        float* out = buffer.getWritePointer (0);
+        for (int i = 0; i < numSamples; ++i) out[i] = 0.5f * (L[i] + R[i]);
     }
 
     outputLevel.store (outPeak, std::memory_order_relaxed);

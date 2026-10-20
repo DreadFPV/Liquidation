@@ -76,7 +76,7 @@ private:
     liq::EffectsRack rack;
     liq::EngineParams engineParams;
 
-    juce::AudioBuffer<float> dryBuffer, wetBuffer;
+    juce::AudioBuffer<float> dryBuffer, wetBuffer, monoWork;
     double sr = 48000.0;
     double internalPpq = 0.0;
     static constexpr int subBlock = 32;

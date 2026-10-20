@@ -155,6 +155,34 @@ int main()
         CHECK (r.finite && r.peak < 8.0f, "stress test bounded");
     }
 
+    std::printf ("Mono track\n");
+    {
+        LiquidationProcessor mono;
+        auto layout = mono.getBusesLayout();
+        layout.inputBuses.getReference (0) = juce::AudioChannelSet::mono();
+        layout.outputBuses.getReference (0) = juce::AudioChannelSet::mono();
+        CHECK (mono.setBusesLayout (layout), "mono -> mono layout accepted");
+        mono.prepareToPlay (48000.0, 512);
+        mono.presets.load (8);   // Endless Freeze
+        mono.apvts.getParameter (id::dryWet)->setValueNotifyingHost (1.0f);
+        juce::AudioBuffer<float> b (1, 512); juce::MidiBuffer m;
+        double diff = 0, ref = 0; bool finite = true;
+        for (int64_t pos = 0; pos < 48000 * 3; pos += 512)
+        {
+            for (int k = 0; k < 512; ++k) b.setSample (0, k, melody (pos + k, 0));
+            juce::AudioBuffer<float> in; in.makeCopyOf (b);
+            mono.processBlock (b, m);
+            for (int k = 0; k < 512; ++k)
+            {
+                const float y = b.getSample (0, k);
+                if (! std::isfinite (y)) finite = false;
+                if (pos > 48000) { diff += (y - in.getSample (0, k)) * (y - in.getSample (0, k)); ref += in.getSample (0, k) * in.getSample (0, k); }
+            }
+        }
+        std::printf ("  mono output differs from input by %.0f%%\n", 100.0 * std::sqrt (diff / ref));
+        CHECK (finite && diff / ref > 0.1, "mono track is processed");
+    }
+
     std::printf ("State round trip\n");
     {
         proc.presets.load (5);
