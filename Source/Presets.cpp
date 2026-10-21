@@ -1,6 +1,8 @@
 #include "Presets.h"
 #include "Params.h"
 #include "dsp/GrainEngine.h"
+#include "dsp/SpectralMorph.h"
+#include "dsp/Modeler.h"
 #include <cmath>
 
 namespace liq
@@ -23,6 +25,12 @@ void PresetWriter::route (int slot, int source, const juce::String& targetId, fl
     setChoice (id::mx (slot, "Src"), source);
     setChoice (id::mx (slot, "Dst"), dst);
     set (id::mx (slot, "Amt"), amount);
+}
+
+void PresetWriter::dryWet (float d)
+{
+    set (id::mixWet, std::min (1.0f, 2.0f * d));
+    set (id::mixDry, std::min (1.0f, 2.0f * (1.0f - d)));
 }
 
 void PresetWriter::freeRateMs (float ms)
@@ -82,7 +90,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
             w.freeRateMs (35); w.set (id::sizeRatio, 3.0f);
             w.setChoice (id::chordMode, chordChord); intervals (w, { 0, 4, 7 });
             w.set (id::detune, 0.25f); w.set (id::chordSpread, 0.7f);
-            w.set (id::dimension, 0.4f); w.set (id::dryWet, 0.5f);
+            w.set (id::dimension, 0.4f); w.dryWet (0.5f);
             w.route (1, M1, id::detune, 0.6f);   w.route (2, M1, id::dimension, 0.5f);
             w.route (3, M2, id::pitch, semis (7)); w.route (4, M2, id::chordSpread, 0.3f); } },
 
@@ -97,7 +105,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
         { "Octave Stack", "Harmonic", [] (PresetWriter& w) {
             w.freeRateMs (30); w.set (id::sizeRatio, 3.0f);
             w.setChoice (id::chordMode, chordChord); intervals (w, { -7, 0, 7 });
-            w.set (id::chordSpread, 1.0f); w.set (id::dryWet, 0.6f);
+            w.set (id::chordSpread, 1.0f); w.dryWet (0.6f);
             w.route (1, M1, id::chordSpread, -0.6f); w.route (2, M2, id::pitch, semis (12)); } },
 
         // ---------------------------------------------------------- Rhythmic
@@ -111,7 +119,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
         { "Gated Sixteenths", "Rhythmic", [] (PresetWriter& w) {
             w.syncedRate (rateStraight, "1/16"); w.set (id::sizeRatio, 0.5f); w.set (id::winShape, 0.7f);
             w.setOn (id::fltOn, true); w.setChoice (id::fltMode, fLowpass); w.set (id::fltCutoff, 3000.0f); w.set (id::fltReso, 0.4f);
-            w.set (id::dryWet, 0.8f);
+            w.dryWet (0.8f);
             w.route (1, M1, id::sizeRatio, 0.3f); w.route (2, M2, id::fltCutoff, -0.4f); } },
 
         { "Triplet Bounce", "Rhythmic", [] (PresetWriter& w) {
@@ -144,7 +152,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
             w.set (id::stretch, 0.995f); w.set (id::blur, 1.0f); w.freeRateMs (10);
             w.setOn (id::sizeLink, false); w.set (id::grainSize, 400.0f); w.set (id::spray, 0.3f);
             w.setOn (id::fltOn, true); w.set (id::fltCutoff, 3000.0f); w.set (id::fltReso, 0.1f);
-            fx (w, 4, fxReverb, 0.5f, 0.85f, 0.6f, 1.0f, 0.2f); w.set (id::dryWet, 0.7f);
+            fx (w, 4, fxReverb, 0.5f, 0.85f, 0.6f, 1.0f, 0.2f); w.dryWet (0.7f);
             w.route (1, M1, id::fltCutoff, 0.35f); w.route (2, M2, id::detune, 0.5f); w.route (3, M2, id::dimension, 0.8f); } },
 
         { "Transient Freeze", "Freeze & Pads", [] (PresetWriter& w) {
@@ -176,7 +184,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
         { "Goa Acid Grains", "Goa / Psy", [] (PresetWriter& w) {
             w.syncedRate (rateStraight, "1/16"); w.set (id::sizeRatio, 0.9f);
             w.setOn (id::fltOn, true); w.setChoice (id::fltMode, fBandpass); w.set (id::fltCutoff, 900.0f);
-            w.set (id::fltReso, 0.7f); w.set (id::fltModDepth, 0.5f); w.set (id::fltModRate, 1.0f); w.set (id::fltDrive, 0.3f);
+            w.set (id::fltReso, 0.45f); w.dryWet (0.6f); w.set (id::fltModDepth, 0.5f); w.set (id::fltModRate, 1.0f); w.set (id::fltDrive, 0.3f);
             w.setOn (id::dlyOn, true); w.setOn (id::dlyPingPong, true); w.setChoice (id::dlyDiv, defaultDivisionIndex ("1/8D"));
             w.set (id::dlyTaps, 2); w.set (id::dlyMix, 0.35f);
             w.route (1, M1, id::fltCutoff, 0.4f); w.route (2, M2, id::fltReso, 0.25f); w.route (3, M2, id::dlyMix, 0.4f); } },
@@ -184,7 +192,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
         { "Psy Gate Trance", "Goa / Psy", [] (PresetWriter& w) {
             w.syncedRate (rateStraight, "1/16"); w.set (id::sizeRatio, 0.7f); w.set (id::winShape, 0.6f);
             w.setChoice (id::stretchRetrig, defaultDivisionIndex ("1/4")); w.set (id::revProb, 0.2f);
-            w.set (id::dryWet, 1.0f);
+            w.dryWet (1.0f);
             w.route (1, M1, id::revProb, 0.7f); w.route (2, M2, id::sizeRatio, -0.25f); } },
 
         { "Full-On Roller", "Goa / Psy", [] (PresetWriter& w) {
@@ -199,7 +207,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
             w.setChoice (id::spreadMode, spScatter); w.set (id::spread, 0.9f); w.set (id::spray, 0.6f); w.set (id::revProb, 0.5f);
             w.setOn (id::fltOn, true); w.setChoice (id::fltMode, fModal); w.set (id::fltMorph, 0.5f); w.set (id::fltReso, 0.6f);
             w.set (id::fltCutoff, 300.0f); w.setOn (id::fltScale, true); w.setOn (id::fltRandom, true); w.set (id::fltModDepth, 0.5f);
-            w.set (id::detune, 0.4f);
+            w.set (id::detune, 0.4f); w.dryWet (0.5f);
             w.route (1, M1, id::fltMorph, 0.5f); w.route (2, M2, id::jitter, 0.8f); } },
 
         { "Hi-Tech Shards", "Goa / Psy", [] (PresetWriter& w) {
@@ -229,7 +237,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
 
         { "Vowel Talker", "Transform", [] (PresetWriter& w) {
             w.freeRateMs (20); w.set (id::sizeRatio, 2.0f);
-            w.setOn (id::fltOn, true); w.setChoice (id::fltMode, fVowel); w.set (id::fltReso, 0.5f); w.set (id::fltCutoff, 900.0f);
+            w.setOn (id::fltOn, true); w.setChoice (id::fltMode, fVowel); w.set (id::fltReso, 0.5f); w.set (id::fltCutoff, 900.0f); w.dryWet (0.55f);
             w.setChoice (id::mod (1, "Type"), modLfo); w.setOn (id::mod (1, "Sync"), true);
             w.setChoice (id::mod (1, "Div"), defaultDivisionIndex ("1 bar")); w.set (id::mod (1, "Shape"), 0.25f);
             w.route (1, Mod1, id::fltMorph, 1.0f); w.route (2, M1, id::fltCutoff, 0.3f); w.route (3, M2, id::fltReso, 0.4f); } },
@@ -241,7 +249,7 @@ const std::vector<FactoryPreset>& PresetManager::factory()
 
         { "MIDI Played Grains", "Transform", [] (PresetWriter& w) {
             w.setChoice (id::rateMode, rateMidi); w.set (id::grainRate, 0.5f); w.set (id::sizeRatio, 3.0f);
-            w.setOn (id::fltOn, true); w.set (id::fltCutoff, 5000.0f); w.set (id::dryWet, 1.0f);
+            w.setOn (id::fltOn, true); w.set (id::fltCutoff, 5000.0f); w.dryWet (1.0f);
             w.route (1, M1, id::sizeRatio, 0.2f); w.route (2, M2, id::fltCutoff, -0.3f); } },
 
         // ---------------------------------------------------------- Glitch / Scrub
@@ -270,19 +278,71 @@ const std::vector<FactoryPreset>& PresetManager::factory()
         { "Vocal Harmonizer", "Vocal", [] (PresetWriter& w) {
             w.setChoice (id::chordMode, chordChord); intervals (w, { 0, 2, 4 }); w.setChoice (id::retune, retuneHard);
             w.setOn (id::sizeLink, false); w.set (id::grainSize, 80.0f); w.freeRateMs (30);
-            w.set (id::detune, 0.1f); w.set (id::chordSpread, 0.8f); w.set (id::dryWet, 0.5f);
+            w.set (id::detune, 0.1f); w.set (id::chordSpread, 0.8f); w.dryWet (0.5f);
             w.route (1, M1, id::chordSpread, 0.2f); w.route (2, M2, id::detune, 0.4f); } },
 
         { "Hard-Tuned Grains", "Vocal", [] (PresetWriter& w) {
             w.setChoice (id::retune, retuneHard); w.setOn (id::sizeLink, false); w.set (id::grainSize, 60.0f); w.freeRateMs (22);
-            w.set (id::dryWet, 1.0f);
+            w.dryWet (1.0f);
             w.route (1, M1, id::pitch, semis (12)); w.route (2, M2, id::detune, 0.6f); } },
+
+        { "Formant Up", "Vocal", [] (PresetWriter& w) {
+            w.setOn (id::formOn, true); w.set (id::formShift, 5.0f);
+            w.route (1, M1, id::formShift, 0.3f); } },
+
+        { "Formant Down", "Vocal", [] (PresetWriter& w) {
+            w.setOn (id::formOn, true); w.set (id::formShift, -5.0f);
+            w.route (1, M1, id::formShift, -0.3f); } },
 
         { "Wide Ensemble", "Vocal", [] (PresetWriter& w) {
             w.set (id::detune, 0.6f); w.freeRateMs (30); w.set (id::sizeRatio, 3.0f);
             w.set (id::dimension, 0.8f); w.set (id::width, 1.5f); w.setChoice (id::spreadMode, spBloom); w.set (id::spread, 0.7f);
-            w.set (id::dryWet, 0.5f);
+            w.dryWet (0.5f);
             w.route (1, M1, id::detune, 0.4f); w.route (2, M2, id::width, 0.25f); } },
+
+        // ---------------------------------------------------------- Morph
+        { "Morph Pad Blend", "Morph", [] (PresetWriter& w) {
+            w.setOn (id::morphOn, true); w.setChoice (id::morphSrc, srcModeler); w.setChoice (id::mdlMode, mdlPad);
+            w.setChoice (id::morphAlgo, morphBlend); w.set (id::morphX, 0.5f); w.set (id::morphY, 1.0f);
+            w.route (1, M1, id::mdlTone, 0.5f); w.route (2, M2, id::morphGamma, 0.3f); } },
+
+        { "Vocoder Pad", "Morph", [] (PresetWriter& w) {
+            w.setOn (id::morphOn, true); w.setChoice (id::morphSrc, srcModeler); w.setChoice (id::mdlMode, mdlPad);
+            w.setChoice (id::morphAlgo, morphCarve); w.set (id::morphX, 0.0f); w.set (id::morphDetail, 0.75f);
+            w.set (id::mdlTone, 0.75f);
+            w.route (1, M1, id::morphDetail, -0.5f); w.route (2, M2, id::mdlTone, 0.3f); } },
+
+        { "Vowel Imprint", "Morph", [] (PresetWriter& w) {
+            w.setOn (id::morphOn, true); w.setChoice (id::morphSrc, srcModeler); w.setChoice (id::mdlMode, mdlVowel);
+            w.setChoice (id::morphAlgo, morphImprint); w.set (id::morphX, 0.75f); w.set (id::mdlMotion, 0.6f);
+            w.route (1, M1, id::mdlMotion, 0.4f); w.route (2, M2, id::morphX, 0.25f); } },
+
+        { "Tonal Kick", "Morph", [] (PresetWriter& w) {
+            w.setOn (id::morphOn, true); w.setChoice (id::morphSrc, srcModeler); w.setChoice (id::mdlMode, mdlDrone);
+            w.set (id::mdlOctave, -1.0f); w.setChoice (id::morphAlgo, morphBlend); w.set (id::morphX, 0.45f);
+            w.setOn (id::trOn, true); w.set (id::trLength, 25.0f); w.set (id::trAmount, 1.0f);
+            w.route (1, M1, id::morphX, 0.3f); w.route (2, M2, id::trLength, 0.4f); } },
+
+        { "Psy Bass Imprint", "Morph", [] (PresetWriter& w) {
+            w.setOn (id::morphOn, true); w.setChoice (id::morphSrc, srcModeler); w.setChoice (id::mdlMode, mdlPsyBass);
+            w.set (id::mdlOctave, -1.0f); w.setChoice (id::morphAlgo, morphCarve); w.set (id::morphX, 0.35f);
+            w.set (id::morphDetail, 0.3f); w.setOn (id::trOn, true);
+            w.route (1, M1, id::mdlTone, 0.5f); w.route (2, M2, id::morphX, 0.4f); } },
+
+        { "Noise Weave", "Morph", [] (PresetWriter& w) {
+            w.setOn (id::morphOn, true); w.setChoice (id::morphSrc, srcModeler); w.setChoice (id::mdlMode, mdlNoise);
+            w.setChoice (id::morphAlgo, morphWeave); w.set (id::morphX, 0.45f); w.set (id::mdlMotion, 0.7f);
+            w.route (1, M1, id::morphX, 0.4f); w.route (2, M2, id::mdlTone, 0.5f); } },
+
+        { "Sidechain Spectral Duck", "Morph", [] (PresetWriter& w) {
+            w.setOn (id::morphOn, true); w.setChoice (id::morphSrc, srcAux);
+            w.setChoice (id::morphAlgo, morphDuck); w.set (id::morphX, 0.8f); w.set (id::morphDetail, 0.4f);
+            w.route (1, M1, id::morphX, 0.2f); } },
+
+        { "Sidechain Blend", "Morph", [] (PresetWriter& w) {
+            w.setOn (id::morphOn, true); w.setChoice (id::morphSrc, srcAux);
+            w.setChoice (id::morphAlgo, morphBlend); w.set (id::morphX, 0.5f);
+            w.route (1, M1, id::morphX, 0.5f); w.route (2, M2, id::morphGamma, 0.4f); } },
     };
     return list;
 }

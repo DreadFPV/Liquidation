@@ -206,7 +206,7 @@ void GrainFilter::process (float& l, float& r, float phase) noexcept
                     s2 = 2.0f * v2 - s2;
                     sum += v1 * f.k * bandGain[b];
                 }
-                y = p.mode == fVowel ? sum * 2.0f : sum * 3.0f;
+                y = p.mode == fVowel ? sum * 4.0f : sum * 5.0f;   // make-up for the narrow resonant bands
                 if (driven) y = fastTanh (y * driveGain) / std::sqrt (driveGain);
                 break;
             }

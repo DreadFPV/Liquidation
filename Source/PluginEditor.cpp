@@ -8,53 +8,52 @@ LiquidationEditor::LiquidationEditor (LiquidationProcessor& p)
       ctx { p, p.apvts,
             [this] (const juce::String& pid, int src) { return addModulation (pid, src); },
             [this] (const juce::String& pid) { clearModulation (pid); },
-            [this] { showTab (3); } }
+            [this] { overlay->open (3); },
+            [this] (int page) { overlay->open (page); } }
 {
     setLookAndFeel (&lnf);
     juce::LookAndFeel::setDefaultLookAndFeel (&lnf);
     addAndMakeVisible (content);
 
-    topBar    = std::make_unique<TopBar> (ctx);
-    grainPage = std::make_unique<GrainPage> (ctx);
-    shapePage = std::make_unique<ShapePage> (ctx);
-    fxPage    = std::make_unique<EffectsPage> (ctx);
-    modPage   = std::make_unique<ModPage> (ctx);
-    animator  = std::make_unique<AnimatorPanel> (ctx);
-    modBar    = std::make_unique<ModBar> (ctx);
+    topBar  = std::make_unique<TopBar> (ctx);
+    canvas  = std::make_unique<SignalCanvas> (ctx);
+    modBar  = std::make_unique<ModBar> (ctx);
+    overlay = std::make_unique<DetailOverlay> (ctx);
+    content.addAndMakeVisible (*topBar);
+    content.addAndMakeVisible (*canvas);
+    content.addAndMakeVisible (*modBar);
+    content.addChildComponent (*overlay);
+    content.addChildComponent (helpCard);
+    helpCard.setInterceptsMouseClicks (false, false);
 
-    for (juce::Component* c : { (juce::Component*) topBar.get(), (juce::Component*) grainPage.get(),
-                                (juce::Component*) shapePage.get(), (juce::Component*) fxPage.get(),
-                                (juce::Component*) modPage.get(), (juce::Component*) animator.get(),
-                                (juce::Component*) modBar.get() })
-        content.addAndMakeVisible (c);
-
-    const char* names[] { "GRAIN", "FILTER  IMAGER  DELAY", "EFFECTS", "MODULATION" };
-    for (int i = 0; i < 4; ++i)
+    modBar->onModulatorClicked = [this] (int m) { overlay->selectModulator (m); overlay->open (3); };
+    modBar->onMatrix = [this] { overlay->open (3); };
+    topBar->help.onClick = [this]
     {
-        auto* b = tabs.add (new juce::TextButton (names[i]));
-        b->setRadioGroupId (1001);
-        b->setClickingTogglesState (true);
-        b->onClick = [this, i] { showTab (i); };
-        content.addAndMakeVisible (b);
-    }
+        helpTarget = nullptr;
+        if (topBar->help.getToggleState())
+            helpCard.show ("Hilfe-Modus", "Fahre mit der Maus über einen Block, um zu sehen, was er macht.\n"_de
+                                          "Signalfluss: links rein, rechts raus. A = deine Spur, B = Sidechain oder Modeler.\n"
+                                          "Nochmal auf ? klicken beendet die Hilfe.",
+                           topBar->help.getBounds().translated (0, 40), content.getLocalBounds().reduced (8));
+        else
+            helpCard.setVisible (false);
+    };
 
-    modBar->onModulatorClicked = [this] (int m) { modPage->selectModulator (m); showTab (3); modBar->setSelected (m); };
-    modBar->onMatrix = [this] { showTab (3); };
-    modBar->setSelected (0);
-
-    fxPage->update();
-    showTab (0);
+    content.addMouseListener (this, true);
 
     setResizable (true, true);
     getConstrainer()->setFixedAspectRatio ((double) baseW / baseH);
-    setResizeLimits ((int) (baseW * 0.65), (int) (baseH * 0.65), (int) (baseW * 1.8), (int) (baseH * 1.8));
+    setResizeLimits ((int) (baseW * 0.6), (int) (baseH * 0.6), (int) (baseW * 1.6), (int) (baseH * 1.6));
     setSize (baseW, baseH);
+    setWantsKeyboardFocus (true);
     startTimerHz (30);
 }
 
 LiquidationEditor::~LiquidationEditor()
 {
     stopTimer();
+    content.removeMouseListener (this);
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     setLookAndFeel (nullptr);
 }
@@ -66,32 +65,48 @@ void LiquidationEditor::resized()
     const float scale = (float) getWidth() / (float) baseW;
     content.setBounds (0, 0, baseW, baseH);
     content.setTransform (juce::AffineTransform::scale (scale));
-
-    topBar->setBounds (0, 0, baseW, 74);
-    int x = 10;
-    for (auto* t : tabs)
-    {
-        const int w = t->getButtonText().length() > 12 ? 190 : 120;
-        t->setBounds (x, 80, w, 26);
-        x += w + 6;
-    }
-    const juce::Rectangle<int> pageArea (10, 112, 890, baseH - 112 - 78);
-    for (juce::Component* pg : { (juce::Component*) grainPage.get(), (juce::Component*) shapePage.get(),
-                                 (juce::Component*) fxPage.get(), (juce::Component*) modPage.get() })
-        pg->setBounds (pageArea);
-    animator->setBounds (908, 80, baseW - 908 - 10, baseH - 80 - 78);
-    modBar->setBounds (0, baseH - 70, baseW, 70);
+    topBar->setBounds (0, 0, baseW, 56);
+    canvas->setBounds (0, 56, baseW, 656);
+    modBar->setBounds (0, 712, baseW, 88);
+    overlay->setBounds (0, 56, baseW, 656);
 }
 
-void LiquidationEditor::showTab (int t)
+bool LiquidationEditor::keyPressed (const juce::KeyPress& k)
 {
-    currentTab = juce::jlimit (0, 3, t);
-    grainPage->setVisible (currentTab == 0);
-    shapePage->setVisible (currentTab == 1);
-    fxPage->setVisible (currentTab == 2);
-    modPage->setVisible (currentTab == 3);
-    tabs[currentTab]->setToggleState (true, juce::dontSendNotification);
+    if (k == juce::KeyPress::escapeKey && overlay->isVisible()) { overlay->close(); return true; }
+    return false;
 }
+
+void LiquidationEditor::showHelpFor (juce::Component* c)
+{
+    // walk up to the next section that carries a help text
+    juce::Component* target = nullptr;
+    for (auto* x = c; x != nullptr && x != &content; x = x->getParentComponent())
+    {
+        if (auto* s = dynamic_cast<Section*> (x); s != nullptr && s->helpText.isNotEmpty()) { target = s; break; }
+        if (x == modBar.get()) { target = x; break; }
+    }
+    if (target == helpTarget) return;
+    helpTarget = target;
+    if (target == nullptr) { helpCard.setVisible (false); return; }
+
+    const auto bounds = content.getLocalArea (target->getParentComponent(), target->getBounds());
+    if (target == modBar.get())
+        helpCard.show ("Modulation",
+                       "Macro 1/2 und Mod 1-4 sind Quellen. Ziehe eine Quelle auf einen Regler - der grüne Ring zeigt die Stärke. "_de
+                       "Klick auf Mod 1-4 öffnet LFO, Sequencer oder Envelope. Rechtsklick auf einen Regler entfernt die Modulation."_de,
+                       bounds, content.getLocalBounds().reduced (8));
+    else if (auto* s = dynamic_cast<Section*> (target))
+        helpCard.show (s->helpHeading, s->helpText, bounds, content.getLocalBounds().reduced (8));
+}
+
+void LiquidationEditor::mouseMove (const juce::MouseEvent& e)
+{
+    if (! topBar->help.getToggleState() || overlay->isVisible()) return;
+    showHelpFor (e.eventComponent);
+}
+
+void LiquidationEditor::mouseExit (const juce::MouseEvent&) {}
 
 bool LiquidationEditor::addModulation (const juce::String& paramId, int source)
 {
@@ -100,7 +115,7 @@ bool LiquidationEditor::addModulation (const juce::String& paramId, int source)
     auto get = [this] (int s, const char* f) { return (int) std::lround (proc.apvts.getRawParameterValue (id::mx (s, f))->load()); };
 
     for (int s = 1; s <= numMatrixSlots; ++s)
-        if (get (s, "Src") == source && get (s, "Dst") == dst) return true;   // already routed
+        if (get (s, "Src") == source && get (s, "Dst") == dst) return true;
 
     for (int s = 1; s <= numMatrixSlots; ++s)
     {
@@ -119,8 +134,8 @@ bool LiquidationEditor::addModulation (const juce::String& paramId, int source)
             return true;
         }
     }
-    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Mod matrix full",
-                                            "All 16 modulation slots are in use. Clear one in the Modulation tab.");
+    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Mod Matrix voll",
+                                            "Alle 16 Modulations-Slots sind belegt. Entferne einen in der Mod Matrix.");
     return false;
 }
 
@@ -138,21 +153,18 @@ void LiquidationEditor::clearModulation (const juce::String& paramId)
 
 void LiquidationEditor::timerCallback()
 {
-    ++frame;
     topBar->update();
     modBar->update();
-    animator->update();
-    switch (currentTab)
+    if (overlay->isVisible())
     {
-        case 0: grainPage->update(); break;
-        case 1: shapePage->update(); break;
-        case 2: fxPage->update(); break;
-        case 3: modPage->update(); break;
-        default: break;
+        overlay->update();
+        overlay->refreshModulation();
     }
-    // modulation rings: visible page + always-visible panels
-    juce::Component* pages[] { grainPage.get(), shapePage.get(), fxPage.get(), modPage.get() };
-    if (auto* pg = dynamic_cast<Page*> (pages[currentTab])) pg->refreshModulation();
-    animator->refreshModulation();
-    topBar->refreshModulation();
+    else
+    {
+        canvas->update();
+        canvas->refreshModulation();
+    }
+    modBar->refreshModulation();
+    if (! topBar->help.getToggleState() && helpCard.isVisible()) helpCard.setVisible (false);
 }

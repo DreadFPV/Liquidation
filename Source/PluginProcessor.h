@@ -7,6 +7,12 @@
 #include "dsp/EffectsRack.h"
 #include "dsp/Modulation.h"
 #include "dsp/Animator.h"
+#include "dsp/SpectralMorph.h"
+#include "dsp/Modeler.h"
+#include "dsp/Dynamics.h"
+#include "dsp/FdnReverb.h"
+#include "dsp/DelayLine.h"
+#include "dsp/PitchDetector.h"
 
 #include <unordered_map>
 
@@ -46,6 +52,17 @@ public:
     liq::GrainEngine engine;
     liq::ModSystem modSystem;
     liq::Animator animator;
+    liq::SpectralMorph morph;
+    liq::Modeler modeler;
+    liq::TransientKeeper transients;
+    liq::Limiter limiter;
+
+    // grain engine latency (samples) – parallel paths are delayed to match
+    static constexpr int grainLatency = 3;
+    int totalLatency() const noexcept { return morph.latency() + grainLatency + liq::Limiter::lookahead; }
+
+    std::atomic<float> mainLevel { 0.0f }, auxLevel { 0.0f };
+    std::atomic<bool> auxConnected { false };
 
     std::atomic<double> hostBpm { 120.0 };
     // held while buffers are (re)allocated; the UI only reads engine buffers under a try-lock
@@ -77,6 +94,11 @@ private:
     liq::EngineParams engineParams;
 
     juce::AudioBuffer<float> dryBuffer, wetBuffer, monoWork;
+    liq::FdnReverb mixReverb;
+    std::array<liq::FixedDelay, 2> alignMain, alignAux, alignModel, grainBypass;
+    liq::PitchDetector followDetector;
+    int64_t followPos = 0;
+    float auxMeter = 0.0f, mainMeter = 0.0f;
     double sr = 48000.0;
     double internalPpq = 0.0;
     static constexpr int subBlock = 32;

@@ -33,6 +33,8 @@ namespace liq
     juce::StringArray loopLengthNames();
     double loopLengthBeats (int index);
     juce::StringArray scrubModeNames();     // Free + divisions
+    juce::StringArray morphAlgoNames();
+    juce::StringArray modelerModeNames();
     double scrubModeBeats (int index);      // 0 for Free
 
     enum RateMode     { rateFree = 0, rateSynced, rateStraight, rateTriplet, rateDotted, rateScale, rateMidi };
@@ -49,6 +51,9 @@ namespace liq
                         fxReverb, fxShifter, fxNumTypes };
     enum ModType      { modLfo = 0, modSequencer, modEnvelope };
     enum Routing      { routePost = 0, routePre };
+    enum MorphSource  { srcAux = 0, srcModeler };
+    enum AnimTarget   { animToMorph = 0, animToMacros };
+    constexpr int numMixChannels = 4;
 
     constexpr int numIntervals   = 6;
     constexpr int numFxSlots     = 4;
@@ -61,7 +66,8 @@ namespace liq
     namespace id
     {
         // global
-        inline const juce::String dryWet { "dryWet" }, routing { "routing" }, inputGain { "inputGain" },
+        inline const juce::String routing { "routing" }, inputGain { "inputGain" }, auxGain { "auxGain" },
+            limitOn { "limitOn" }, grainOn { "grainOn" },
             outputGain { "outputGain" }, globalTune { "globalTune" }, scaleRoot { "scaleRoot" },
             scaleType { "scaleType" };
         // grain
@@ -94,7 +100,21 @@ namespace liq
         // animator / macros
         inline const juce::String macro1 { "macro1" }, macro2 { "macro2" }, animDepth { "animDepth" },
             animDrift { "animDrift" }, animMode { "animMode" }, animCycles { "animCycles" }, animWarp { "animWarp" },
-            animRate { "animRate" }, animSync { "animSync" }, animDiv { "animDiv" };
+            animRate { "animRate" }, animSync { "animSync" }, animDiv { "animDiv" }, animTarget { "animTarget" };
+        // morph / formant
+        inline const juce::String morphOn { "morphOn" }, morphSrc { "morphSrc" }, morphX { "morphX" },
+            morphY { "morphY" }, morphAlgo { "morphAlgo" }, morphGamma { "morphGamma" }, morphDetail { "morphDetail" },
+            formOn { "formOn" }, formShift { "formShift" };
+        // transients
+        inline const juce::String trOn { "trOn" }, trSens { "trSens" }, trLength { "trLength" }, trAmount { "trAmount" };
+        // modeler
+        inline const juce::String mdlMode { "mdlMode" }, mdlOctave { "mdlOctave" }, mdlRate { "mdlRate" },
+            mdlTone { "mdlTone" }, mdlMotion { "mdlMotion" }, mdlFollow { "mdlFollow" };
+        // mixer
+        inline const juce::String mixWet { "mixWet" }, mixDry { "mixDry" }, mixAux { "mixAux" }, mixModel { "mixModel" },
+            revSize { "revSize" }, revDamp { "revDamp" }, revMix { "revMix" };
+        juce::String mute (int ch);   // 0 morph, 1 main, 2 aux, 3 modeler
+        juce::String solo (int ch);
 
         // indexed (1-based)
         juce::String scaleNote (int pc);                 // pc 0..11

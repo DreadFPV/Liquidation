@@ -8,7 +8,8 @@ using namespace liq;
 LiquidationProcessor::LiquidationProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                          .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, nullptr, "LiquidationState", createParameterLayout()),
       presets (apvts)
 {
@@ -42,7 +43,13 @@ bool LiquidationProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
     { return s == juce::AudioChannelSet::stereo() || s == juce::AudioChannelSet::mono(); };
     // mono -> mono, mono -> stereo, stereo -> stereo (mono tracks are common for kick / bass)
     if (! ok (in) || ! ok (out)) return false;
-    return ! (in == juce::AudioChannelSet::stereo() && out == juce::AudioChannelSet::mono());
+    if (in == juce::AudioChannelSet::stereo() && out == juce::AudioChannelSet::mono()) return false;
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled() && ! ok (sc)) return false;
+    }
+    return true;
 }
 
 void LiquidationProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -55,9 +62,23 @@ void LiquidationProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     modSystem.prepare (sampleRate);
     modSystem.seqSteps = steps;
     animator.prepare (sampleRate);
-    dryBuffer.setSize (2, std::max (samplesPerBlock, subBlock), false, true, true);
-    wetBuffer.setSize (2, std::max (samplesPerBlock, subBlock), false, true, true);
-    monoWork.setSize (2, std::max (samplesPerBlock, subBlock) * 2, false, true, true);
+    dryBuffer.setSize (2, subBlock, false, true, true);
+    wetBuffer.setSize (2, subBlock, false, true, true);
+    juce::ignoreUnused (samplesPerBlock);
+
+    morph.prepare (sampleRate);
+    modeler.prepare (sampleRate);
+    limiter.prepare (sampleRate);
+    mixReverb.prepare (sampleRate);
+    const int align = morph.latency() + grainLatency;
+    for (auto& d : alignMain) d.prepare (align);
+    for (auto& d : alignAux) d.prepare (align);
+    for (auto& d : alignModel) d.prepare (align);
+    for (auto& d : grainBypass) d.prepare (grainLatency);
+    transients.prepare (sampleRate, align);
+    followDetector.prepare (sampleRate, (int64_t) sampleRate * 2);
+    followPos = 0;
+    setLatencySamples (totalLatency());
 }
 
 // ----------------------------------------------------------------------------
@@ -188,7 +209,6 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
 {
     juce::ScopedNoDenormals noDenormals;
     const int numSamples = buffer.getNumSamples();
-    const int numIn = getTotalNumInputChannels();
 
     // ---- transport
     double bpm = 120.0, ppq = 0.0;
@@ -217,27 +237,16 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
             for (int nn = 0; nn < 128; ++nn) engine.noteOff (nn);
     }
 
-    // ---- input: always work in stereo internally
-    const int numCh = buffer.getNumChannels();
-    if (numCh == 0) return;
-    float* L;
-    float* R;
-    if (numCh >= 2)
-    {
-        if (numIn == 1) buffer.copyFrom (1, 0, buffer, 0, 0, numSamples);
-        for (int ch = 2; ch < numCh; ++ch) buffer.clear (ch, 0, numSamples);
-        L = buffer.getWritePointer (0);
-        R = buffer.getWritePointer (1);
-    }
-    else
-    {
-        // mono track: process a stereo copy and fold it back down at the end
-        if (monoWork.getNumSamples() < numSamples) monoWork.setSize (2, numSamples, false, false, true);
-        monoWork.copyFrom (0, 0, buffer, 0, 0, numSamples);
-        monoWork.copyFrom (1, 0, buffer, 0, 0, numSamples);
-        L = monoWork.getWritePointer (0);
-        R = monoWork.getWritePointer (1);
-    }
+    // ---- buses (read every input of a sub-block before writing its output: channels may alias)
+    auto mainIn = getBusBuffer (buffer, true, 0);
+    auto mainOut = getBusBuffer (buffer, false, 0);
+    const bool scEnabled = getBusCount (true) > 1 && getBus (true, 1) != nullptr && getBus (true, 1)->isEnabled()
+                           && getChannelCountOfBus (true, 1) > 0;
+    juce::AudioBuffer<float> scIn;
+    if (scEnabled) scIn = getBusBuffer (buffer, true, 1);
+    const int numMainIn = mainIn.getNumChannels(), numMainOut = mainOut.getNumChannels();
+    const int numSc = scEnabled ? scIn.getNumChannels() : 0;
+    if (numMainOut == 0) return;
 
     const float inGain = juce::Decibels::decibelsToGain (raw (id::inputGain));
 
@@ -267,39 +276,135 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
         slot.dst = choice (id::mx (s, "Dst"));
         slot.amount = raw (id::mx (s, "Amt"));
     }
+    const bool animMorph = choice (id::animTarget) == animToMorph;
     AnimatorParams ap;
-    ap.x = raw (id::macro1); ap.y = raw (id::macro2);
+    ap.x = animMorph ? raw (id::morphX) : raw (id::macro1);
+    ap.y = animMorph ? raw (id::morphY) : raw (id::macro2);
     ap.depth = raw (id::animDepth); ap.drift = raw (id::animDrift);
     ap.mode = choice (id::animMode); ap.cycles = (int) std::lround (raw (id::animCycles));
     ap.warp = raw (id::animWarp); ap.rateHz = raw (id::animRate); ap.sync = flag (id::animSync);
     ap.divBeats = divisions()[(size_t) juce::jlimit (0, (int) divisions().size() - 1, choice (id::animDiv))].beats;
 
     const int routing = choice (id::routing);
-    float outPeak = 0.0f;
+    const bool morphOn = flag (id::morphOn);
+    const int morphSrc = choice (id::morphSrc);
+    const bool grainOn = flag (id::grainOn);
+    const bool limitOn = flag (id::limitOn);
+    const bool follow = flag (id::mdlFollow);
+
+    // mixer mute / solo
+    std::array<bool, numMixChannels> chOn {};
+    {
+        bool anySolo = false;
+        for (int c = 0; c < numMixChannels; ++c) anySolo = anySolo || flag (id::solo (c));
+        for (int c = 0; c < numMixChannels; ++c)
+            chOn[(size_t) c] = anySolo ? flag (id::solo (c)) : ! flag (id::mute (c));
+    }
+
+    float outPeak = 0.0f, mainPeak = 0.0f, auxPeak = 0.0f;
+    float bufMainL[subBlock], bufMainR[subBlock], bufAuxL[subBlock], bufAuxR[subBlock];
+    float bufMdlL[subBlock], bufMdlR[subBlock], bufMorL[subBlock], bufMorR[subBlock];
+    float alMainL[subBlock], alMainR[subBlock], alAuxL[subBlock], alAuxR[subBlock], alMdlL[subBlock], alMdlR[subBlock];
+    float mixL[subBlock], mixR[subBlock], revL[subBlock], revR[subBlock];
 
     for (int start = 0; start < numSamples; start += subBlock)
     {
         const int n = std::min (subBlock, numSamples - start);
         const double subPpq = ppq + start * bpm / 60.0 / sr;
 
-        float* dl = dryBuffer.getWritePointer (0);
-        float* dr = dryBuffer.getWritePointer (1);
-        float peak = 0.0f;
+        // ---- read inputs
+        const float auxG = juce::Decibels::decibelsToGain (mod (id::auxGain));
         for (int i = 0; i < n; ++i)
         {
-            dl[i] = L[start + i] * inGain;
-            dr[i] = R[start + i] * inGain;
-            peak = std::max (peak, std::max (std::abs (dl[i]), std::abs (dr[i])));
+            const float l = numMainIn > 0 ? mainIn.getSample (0, start + i) : 0.0f;
+            const float r = numMainIn > 1 ? mainIn.getSample (1, start + i) : l;
+            bufMainL[i] = l * inGain; bufMainR[i] = r * inGain;
+            const float al = numSc > 0 ? scIn.getSample (0, start + i) : 0.0f;
+            const float ar = numSc > 1 ? scIn.getSample (1, start + i) : al;
+            bufAuxL[i] = al * auxG; bufAuxR[i] = ar * auxG;
+            mainPeak = std::max (mainPeak, std::max (std::abs (bufMainL[i]), std::abs (bufMainR[i])));
+            auxPeak = std::max (auxPeak, std::max (std::abs (bufAuxL[i]), std::abs (bufAuxR[i])));
         }
 
+        // ---- modulation
         animator.advance (ap, n, subPpq, bpm, playing);
-        modSystem.process (mp, matrix, animator.macro1(), animator.macro2(), n, subPpq, playing, peak);
+        const float m1 = animMorph ? raw (id::macro1) : animator.macro1();
+        const float m2 = animMorph ? raw (id::macro2) : animator.macro2();
+        modSystem.process (mp, matrix, m1, m2, n, subPpq, playing, mainPeak);
         buildEngineParams (engineParams, subPpq, playing, bpm);
 
+        // ---- modeler (only rendered when somebody listens)
+        const float gModel = chOn[3] ? mod (id::mixModel) : 0.0f;
+        const bool needModel = (morphOn && morphSrc == srcModeler) || gModel > 0.0001f;
+        float followMidi = -1.0f;
+        if (follow)
+        {
+            for (int i = 0; i < n; ++i) followDetector.push (0.5f * (bufMainL[i] + bufMainR[i]), followPos++);
+            followMidi = followDetector.pitchAt (followPos - followDetector.latency());
+            if (followMidi > 0.0f) followMidi -= 12.0f * std::log2 (engineParams.scale.a4 / 440.0f);
+        }
+        if (needModel)
+        {
+            ModelerParams mpar;
+            mpar.mode = choice (id::mdlMode);
+            mpar.octave = (int) std::lround (raw (id::mdlOctave));
+            mpar.rateBeats = divisions()[(size_t) juce::jlimit (0, (int) divisions().size() - 1, choice (id::mdlRate))].beats;
+            mpar.tone = mod (id::mdlTone);
+            mpar.motion = mod (id::mdlMotion);
+            mpar.follow = follow;
+            modeler.process (bufMdlL, bufMdlR, n, mpar, engineParams.scale, bpm, subPpq, followMidi);
+        }
+        else
+        {
+            std::fill (bufMdlL, bufMdlL + n, 0.0f);
+            std::fill (bufMdlR, bufMdlR + n, 0.0f);
+        }
+
+        // ---- morph + formants (constant latency)
+        MorphParams mo;
+        mo.morphOn = morphOn;
+        const float offX = mod (id::morphX) - raw (id::morphX), offY = mod (id::morphY) - raw (id::morphY);
+        mo.x = juce::jlimit (0.0f, 1.0f, (animMorph ? animator.macro1() : raw (id::morphX)) + offX);
+        mo.y = juce::jlimit (0.0f, 1.0f, (animMorph ? animator.macro2() : raw (id::morphY)) + offY);
+        mo.algo = choice (id::morphAlgo);
+        mo.gamma = mod (id::morphGamma);
+        mo.detail = mod (id::morphDetail);
+        mo.formantOn = flag (id::formOn);
+        mo.formantShift = mod (id::formShift);
+        const float* bL = morphSrc == srcAux ? bufAuxL : bufMdlL;
+        const float* bR = morphSrc == srcAux ? bufAuxR : bufMdlR;
+        morph.process (bufMainL, bufMainR, bL, bR, bufMorL, bufMorR, n, mo);
+
+        // ---- grain engine
         float* wl = wetBuffer.getWritePointer (0);
         float* wr = wetBuffer.getWritePointer (1);
-        engine.process (dl, dr, wl, wr, n, engineParams);
+        if (grainOn)
+        {
+            engine.process (bufMorL, bufMorR, wl, wr, n, engineParams);
+            for (int i = 0; i < n; ++i) { grainBypass[0].process (bufMorL[i]); grainBypass[1].process (bufMorR[i]); }
+        }
+        else
+        {
+            for (int i = 0; i < n; ++i) { wl[i] = grainBypass[0].process (bufMorL[i]); wr[i] = grainBypass[1].process (bufMorR[i]); }
+        }
 
+        // ---- time-aligned dry copies
+        for (int i = 0; i < n; ++i)
+        {
+            alMainL[i] = alignMain[0].process (bufMainL[i]); alMainR[i] = alignMain[1].process (bufMainR[i]);
+            alAuxL[i]  = alignAux[0].process (bufAuxL[i]);   alAuxR[i]  = alignAux[1].process (bufAuxR[i]);
+            alMdlL[i]  = alignModel[0].process (bufMdlL[i]); alMdlR[i]  = alignModel[1].process (bufMdlR[i]);
+        }
+
+        // ---- transients: restore the original attack
+        TransientParams tp;
+        tp.on = flag (id::trOn);
+        tp.sensitivity = mod (id::trSens);
+        tp.lengthMs = mod (id::trLength);
+        tp.amount = mod (id::trAmount);
+        transients.process (bufMainL, bufMainR, alMainL, alMainR, wl, wr, n, tp);
+
+        // ---- effects rack settings
         std::array<FxSlotParams, numFxSlots> fx;
         for (int k = 1; k <= numFxSlots; ++k)
         {
@@ -311,45 +416,57 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
             f.c = mod (id::fx (k, "C")); f.d = mod (id::fx (k, "D"));
         }
 
-        const float dw = mod (id::dryWet);
-        const float dryG = std::min (1.0f, 2.0f * (1.0f - dw));
-        const float wetG = std::min (1.0f, 2.0f * dw);
-        const float outG = juce::Decibels::decibelsToGain (mod (id::outputGain));
+        // ---- mixer
+        const float gWet = chOn[0] ? mod (id::mixWet) : 0.0f;
+        const float gDry = chOn[1] ? mod (id::mixDry) : 0.0f;
+        const float gAux = chOn[2] ? mod (id::mixAux) : 0.0f;
+        for (int i = 0; i < n; ++i) { wl[i] *= gWet; wr[i] *= gWet; }
+        if (routing == routePost) rack.process (wl, wr, n, fx, bpm);
+        for (int i = 0; i < n; ++i)
+        {
+            mixL[i] = wl[i] + alMainL[i] * gDry + alAuxL[i] * gAux + alMdlL[i] * gModel;
+            mixR[i] = wr[i] + alMainR[i] * gDry + alAuxR[i] * gAux + alMdlR[i] * gModel;
+        }
+        if (routing == routePre) rack.process (mixL, mixR, n, fx, bpm);
 
-        if (routing == routePost)
+        const float revAmt = mod (id::revMix);
+        if (revAmt > 0.001f)
         {
-            rack.process (wl, wr, n, fx, bpm);
-            for (int i = 0; i < n; ++i)
-            {
-                L[start + i] = (dl[i] * dryG + wl[i] * wetG) * outG;
-                R[start + i] = (dr[i] * dryG + wr[i] * wetG) * outG;
-            }
+            mixReverb.setParams (mod (id::revSize), mod (id::revDamp), 1.0f, 0.0f);
+            mixReverb.process (mixL, mixR, revL, revR, n);
+            for (int i = 0; i < n; ++i) { mixL[i] += revL[i] * revAmt * 1.3f; mixR[i] += revR[i] * revAmt * 1.3f; }
         }
-        else
-        {
-            for (int i = 0; i < n; ++i)
-            {
-                wl[i] = dl[i] * dryG + wl[i] * wetG;
-                wr[i] = dr[i] * dryG + wr[i] * wetG;
-            }
-            rack.process (wl, wr, n, fx, bpm);
-            for (int i = 0; i < n; ++i)
-            {
-                L[start + i] = wl[i] * outG;
-                R[start + i] = wr[i] * outG;
-            }
-        }
+
+        // ---- output
+        const float outG = juce::Decibels::decibelsToGain (mod (id::outputGain));
+        for (int i = 0; i < n; ++i) { mixL[i] *= outG; mixR[i] *= outG; }
+        limiter.process (mixL, mixR, n, limitOn);
 
         for (int i = 0; i < n; ++i)
-            outPeak = std::max (outPeak, std::max (std::abs (L[start + i]), std::abs (R[start + i])));
+        {
+            if (! std::isfinite (mixL[i])) mixL[i] = 0.0f;
+            if (! std::isfinite (mixR[i])) mixR[i] = 0.0f;
+            if (numMainOut >= 2)
+            {
+                mainOut.setSample (0, start + i, mixL[i]);
+                mainOut.setSample (1, start + i, mixR[i]);
+            }
+            else
+            {
+                mainOut.setSample (0, start + i, 0.5f * (mixL[i] + mixR[i]));
+            }
+            outPeak = std::max (outPeak, std::max (std::abs (mixL[i]), std::abs (mixR[i])));
+        }
     }
 
-    if (numCh == 1)
-    {
-        float* out = buffer.getWritePointer (0);
-        for (int i = 0; i < numSamples; ++i) out[i] = 0.5f * (L[i] + R[i]);
-    }
+    for (int ch = numMainOut; ch < buffer.getNumChannels(); ++ch)
+        if (ch >= 2) buffer.clear (ch, 0, numSamples);
 
+    mainMeter = std::max (mainPeak, mainMeter * 0.85f);
+    auxMeter = std::max (auxPeak, auxMeter * 0.85f);
+    mainLevel.store (mainMeter, std::memory_order_relaxed);
+    auxLevel.store (auxMeter, std::memory_order_relaxed);
+    auxConnected.store (numSc > 0, std::memory_order_relaxed);
     outputLevel.store (outPeak, std::memory_order_relaxed);
 }
 

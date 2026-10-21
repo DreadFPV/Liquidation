@@ -2,7 +2,6 @@
 
 #include "Widgets.h"
 #include "WaveformDisplay.h"
-#include "AnimatorPadView.h"
 
 namespace liq::ui
 {
@@ -112,55 +111,4 @@ private:
     std::vector<std::unique_ptr<APVTS::SliderAttachment>> amtAttachments;
 };
 
-// ---------------------------------------------------------------------------
-class AnimatorPanel : public Page
-{
-public:
-    explicit AnimatorPanel (Ctx& c);
-    void resized() override;
-    void update();
-    AnimatorPadView pad;
-private:
-    Section* sec;
-    Knob *m1, *m2, *depth, *drift, *warp, *rate, *cycles;
-    ParamCombo *mode, *div; ParamToggle* sync;
-};
-
-// ---------------------------------------------------------------------------
-class TopBar : public Page
-{
-public:
-    explicit TopBar (Ctx& c);
-    void resized() override;
-    void paint (juce::Graphics&) override;
-    void update();
-    void refreshPresetList();
-
-private:
-    void savePreset();
-    juce::ComboBox presetBox;
-    juce::TextButton prev { "<" }, next { ">" }, save { "SAVE" };
-    ParamCombo *root, *scale, *routing;
-    Knob *tune, *input, *dryWet, *output;
-    Meter outMeter;
-    juce::String lastName;
-    int lastCount = -1;
-};
-
-// ---------------------------------------------------------------------------
-class ModBar : public Page
-{
-public:
-    explicit ModBar (Ctx& c);
-    void resized() override;
-    void paint (juce::Graphics&) override;
-    void update();
-    std::function<void (int)> onModulatorClicked;   // 0..3
-    std::function<void()> onMatrix;
-    void setSelected (int m) { for (int i = 0; i < 6; ++i) chips[(size_t) i]->setSelected (i == m + 2); }
-
-private:
-    std::array<std::unique_ptr<ModChip>, 6> chips;
-    juce::TextButton matrixButton { "MOD MATRIX" };
-};
 }

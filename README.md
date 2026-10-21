@@ -3,45 +3,57 @@
 Granularer Echtzeit-Effekt als VST3 (Windows/macOS) und AU (macOS) – von JustCreateit.ch.
 Liquidation zerlegt jedes Eingangssignal in Grains und baut es neu zusammen: immer in der Tonart, im Songtempo und mit vollem Zugriff auf jedes Detail.
 
+## Signalfluss
+
+```
+MAIN IN (A) ─────────────────┐
+AUX IN (Sidechain) ─┐        ├─► MORPH ─► FORMANTS ─► GRAIN ENGINE ─► GRAIN FX ─► TRANSIENTS ─► MIXER ─► EFFECTS ─► OUTPUT
+MODELER ────────────┴─ B ────┘                                                                   ▲
+Originale (zeitgleich ausgerichtet) ─────────────────────────────────────────────────────────────┘
+```
+
+Die Oberfläche zeigt genau diesen Fluss. Jeder Block hat die wichtigsten Regler direkt sichtbar,
+**Details** öffnet alle Einstellungen. **?** oben rechts schaltet den Hilfe-Modus ein.
+
 ## Funktionen
 
+**Morph** – verschmilzt deine Spur (A) mit Signal B im Frequenzbereich
+- B = Sidechain (Aux In) oder der eingebaute **Modeler** (Pad, Arp, Drone, Psy Bass, Vowel, Noise – in Tonart und Tempo)
+- XY-Pad: X = Anteil A↔B, Y = normales Überblenden ↔ volles Morphing
+- Algorithmen: Blend, Imprint (A bekommt die Klangfarbe von B), Carve (Vocoder), Weave, Duck (spektrales Ducking)
+- Gamma, Detail, Motion (automatische Bewegung des Pads), Formant-Shift
+
 **Grain Engine**
-- Laufende, tempo-synchrone Aufnahme (Loop 1 Beat bis 4 Takte), Hold friert den Puffer ein
-- Grain Rate: Free (ms), Synced, Straight, Triplet, Dotted, Scale (stimmt wie ein Oszillator), MIDI (per Noten spielbar)
-- Grain Size in ms oder gekoppelt an die Rate, Fensterform, Skew, Jitter
+- Laufende, tempo-synchrone Aufnahme; Stretch (Grid/Transient/Manual, bis Freeze) oder Scrub
+- Grain Rate Free/Synced/Scale/MIDI, Size, Fenster, Jitter, Spray, Blur, Reverse
+- Pitch mit Scale-Lock pro Grain, Chord- und Arp-Modus
+- Pro Grain: 12 Filtertypen, Imager (6 Spread-Modi, Dimension, Mono Lows, Width), Grain-Delay mit 8 Shift-Patterns
 
-**Playback**
-- Stretch: Grid, Transient oder Manual als Retrigger, 1x bis Freeze, Sync, Stretched-BPM-Anzeige
-- Scrub: Position frei oder im Raster, per Maus direkt in der Waveform
-- Reverse, Reverse-Wahrscheinlichkeit pro Grain, Spray, Blur, Level
+**Transients, Mixer, Ausgang**
+- Transient-Erhalt: der Original-Anschlag (z. B. Kick) bleibt knackig
+- Mixer: Morph, Main In, Aux In, Modeler – je Pegel, Mute, Solo; Reverb auf die Summe
+- 4 Effekt-Slots (Chorus, Compressor, Delay, Distortion, EQ, Filter, Reverb, Shifter), Pre/Post
+- Output-Limiter
 
-**Pitch**
-- Repitch, Free und Scale: Tonhöhe jedes Grains wird erkannt und auf die Skala korrigiert (Off, Smooth, Hard)
-- Detune, Chord- und Arp-Modus mit 6 Intervallen (Halbtöne oder Skalenstufen), Arp Random, Stereo-Spread
-- 17 Skalen plus eigene Skala, Global Tune (A4 = 415–466 Hz)
+**Modulation & Presets**
+- 2 Macros + 4 Modulatoren (LFO, Sequencer, Envelope Follower), 16-Slot-Matrix, Drag & Drop auf jeden Regler
+- 41 Werkpresets (Harmonic, Rhythmic, Freeze & Pads, Shimmer, Goa / Psy, Transform, Glitch, Vocal, Morph) und eigene Presets
 
-**Pro Grain**
-- Filter mit 12 Typen: Lowpass, Highpass, Bandpass, Notch, Morph, Vowel, Comb, Flange, Modal, Phaser, Allpass, Reducer – mit Scale-Lock, Random, Modulation pro Grain, Drive
-- Imager: Alternate, Pendulum, Helix, Bloom, Scatter, Drift, Smooth Spread, Dimension, Mono Lows, Width mit Safe-Modus
-- Grain Delay: jede Wiederholung ist ein eigenes Grain, 8 Shift-Patterns, Ping Pong, Channel Swap, Feedback, Space (Shimmer), Low-/Highpass
-
-**Effekte, Modulation, Presets**
-- 4 Effekt-Slots mit je 8 Typen: Chorus, Compressor, Delay, Distortion, Equalizer, Filter, Reverb, Shifter; Dry/Wet vor oder nach dem Rack
-- 2 Macros auf einem XY-Pad mit Animator (Orbit/Weave, Depth, Drift, Cycles, Warp, Rate/Sync)
-- 4 Modulatoren (LFO mit Morph-Form, Step-Sequencer, Envelope Follower), 16-Slot-Matrix, Drag & Drop auf jeden Knopf
-- 31 Werkpresets (Harmonic, Rhythmic, Freeze & Pads, Shimmer, Goa / Psy, Transform, Glitch, Vocal) und eigene Presets
+**Latenz:** konstant 2115 Samples (ca. 44 ms bei 48 kHz), Cubase gleicht das automatisch aus.
 
 ## Installation
 
 Fertige Builds gibt es unter **Actions → neuester Lauf → Artifacts** (`Liquidation-Windows`, `Liquidation-macOS`).
 
 - **Windows:** `Liquidation.vst3` nach `C:\Program Files\Common Files\VST3\` kopieren.
-- **macOS:** Im Artifact liegen `Liquidation-VST3-mac.zip`, `Liquidation-AU-mac.zip` und `Liquidation-App-mac.zip`. Die ZIPs per Doppelklick entpacken (nicht mit einem anderen Tool, sonst gehen die Rechte verloren).
-  `Liquidation.vst3` nach `~/Library/Audio/Plug-Ins/VST3/`, `Liquidation.component` nach `~/Library/Audio/Plug-Ins/Components/`.
+- **macOS:** Im Artifact liegen `Liquidation-VST3-mac.zip`, `Liquidation-AU-mac.zip` und `Liquidation-App-mac.zip`. Die ZIPs per Doppelklick im Finder entpacken.
+  `Liquidation.vst3` nach `/Library/Audio/Plug-Ins/VST3/`, `Liquidation.component` nach `/Library/Audio/Plug-Ins/Components/`, die App nach Programme.
   Die Builds sind nur ad-hoc signiert, deshalb einmalig im Terminal den Download-Vermerk entfernen:
-  `xattr -cr ~/Library/Audio/Plug-Ins/VST3/Liquidation.vst3 ~/Library/Audio/Plug-Ins/Components/Liquidation.component /Applications/Liquidation.app`
+  `sudo xattr -cr /Library/Audio/Plug-Ins/VST3/Liquidation.vst3 /Library/Audio/Plug-Ins/Components/Liquidation.component /Applications/Liquidation.app`
 
 In Cubase danach den Plug-in-Manager neu scannen lassen. Liquidation erscheint als Insert-Effekt.
+
+**Sidechain in Cubase:** Im Plugin-Fenster oben den Sidechain-Knopf aktivieren. Auf der Spur, die als Signal B dienen soll, einen Send auf „Liquidation – Sidechain“ legen. Im Plugin bei MORPH den Schalter auf Aux In stellen.
 
 **MIDI-Modus in Cubase:** Eine MIDI-Spur anlegen und deren Ausgang auf „Liquidation“ der Audiospur setzen, Grain Rate Mode auf „MIDI“.
 
@@ -73,5 +85,7 @@ Tests/                Headless-DSP-Tests (alle Presets, alle Modi, Zustand)
 ```
 
 ## Lizenz
+
+Schrift: Barlow Semi Condensed (SIL Open Font License, siehe `Resources/Fonts/OFL.txt`).
 
 JUCE steht unter AGPLv3 oder kommerzieller JUCE-Lizenz. Für einen Verkauf ist eine passende JUCE-Lizenz nötig (bis zu einer Umsatzgrenze kostenlos).

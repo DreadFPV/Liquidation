@@ -309,13 +309,9 @@ float GrainEngine::nextPanPattern (const EngineParams& p) noexcept
 // ============================================================================
 GrainEngine::Grain* GrainEngine::allocateGrain()
 {
-    Grain* oldest = nullptr;
     for (auto& g : grains)
-    {
         if (! g.active) return &g;
-        if (oldest == nullptr || g.serial < oldest->serial) oldest = &g;
-    }
-    return oldest;   // steal
+    return nullptr;   // pool full: drop the new grain instead of cutting one off (avoids clicks)
 }
 
 void GrainEngine::startGrain (const SpawnInfo& s, const EngineParams& p)

@@ -32,6 +32,12 @@ endif()
 # ---------------------------------------------------------------------------
 # Plugin
 # ---------------------------------------------------------------------------
+juce_add_binary_data(LiquidationFonts SOURCES
+    Resources/Fonts/BarlowSemiCondensed-Regular.ttf
+    Resources/Fonts/BarlowSemiCondensed-Medium.ttf
+    Resources/Fonts/BarlowSemiCondensed-SemiBold.ttf)
+set_target_properties(LiquidationFonts PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 set(LIQ_DSP_SOURCES
     Source/dsp/Scale.cpp
     Source/dsp/PitchDetector.cpp
@@ -42,6 +48,9 @@ set(LIQ_DSP_SOURCES
     Source/dsp/EffectsRack.cpp
     Source/dsp/Modulation.cpp
     Source/dsp/Animator.cpp
+    Source/dsp/SpectralMorph.cpp
+    Source/dsp/Modeler.cpp
+    Source/dsp/Dynamics.cpp
     Source/Params.cpp
     Source/Presets.cpp)
 
@@ -79,7 +88,7 @@ target_sources(Liquidation PRIVATE
     Source/ui/LiqLookAndFeel.cpp
     Source/ui/Widgets.cpp
     Source/ui/WaveformDisplay.cpp
-    Source/ui/AnimatorPadView.cpp
+    Source/ui/Blocks.cpp
     Source/ui/Panels.cpp)
 
 target_include_directories(Liquidation PRIVATE Source)
@@ -92,6 +101,7 @@ target_compile_definitions(Liquidation PUBLIC
 
 target_link_libraries(Liquidation
     PRIVATE
+        LiquidationFonts
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC
@@ -141,12 +151,13 @@ if(LIQ_BUILD_SNAPSHOT)
         Source/ui/LiqLookAndFeel.cpp
         Source/ui/Widgets.cpp
         Source/ui/WaveformDisplay.cpp
-        Source/ui/AnimatorPadView.cpp
+        Source/ui/Blocks.cpp
         Source/ui/Panels.cpp)
     target_include_directories(LiquidationSnapshot PRIVATE Source)
     target_compile_definitions(LiquidationSnapshot PRIVATE
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1
         JucePlugin_Name="Liquidation" JucePlugin_WantsMidiInput=1 JucePlugin_ProducesMidiOutput=0
         JucePlugin_IsMidiEffect=0 JucePlugin_IsSynth=0)
-    target_link_libraries(LiquidationSnapshot PRIVATE juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)
+    target_link_libraries(LiquidationSnapshot PRIVATE LiquidationFonts juce::juce_audio_utils juce::juce_dsp juce::juce_recommended_config_flags)
 endif()
+

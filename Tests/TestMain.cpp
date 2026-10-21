@@ -2,6 +2,7 @@
 // verifies the output is finite, audible, bounded and reasonably cheap to compute.
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "PluginProcessor.h"
+#include "Quality.h"
 #include <cstdio>
 #include <cmath>
 
@@ -44,6 +45,8 @@ namespace
         return r;
     }
 
+    float melody (int64_t n, int ch);
+    float melodyMono (int64_t n) { return melody (n, 0); }
     float sine (int64_t n, double hz, float amp = 0.5f) { return amp * (float) std::sin (2.0 * juce::MathConstants<double>::pi * hz * n / 48000.0); }
 
     // musical test signal: a little melody of plucked notes plus a kick every beat
@@ -155,6 +158,144 @@ int main()
         CHECK (r.finite && r.peak < 8.0f, "stress test bounded");
     }
 
+    std::printf ("Quality (Init, wet only)\n");
+    {
+        LiquidationProcessor q;
+        q.setPlayConfigDetails (2, 2, 48000.0, 512);
+        q.prepareToPlay (48000.0, 512);
+        q.presets.load (0);
+        auto sine = [] (int64_t n) { return 0.5f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 220.0 * (double) n / 48000.0); };
+        auto bass = [] (int64_t n) {
+            static const int notes[] { 33, 33, 36, 31 };
+            const double hz = 440.0 * std::pow (2.0, (notes[(n / 24000) % 4] - 69) / 12.0);
+            double ph = std::fmod (hz * (double) n / 48000.0, 1.0);
+            return 0.4f * (float) (2.0 * ph - 1.0) * (float) std::exp (-(double) (n % 24000) / 48000.0 * 2.0); };
+        std::vector<float> in;
+        auto out = liqtest::render (q, sine, 4.0, &in);
+        auto r = liqtest::measure (in, out);
+        std::printf ("  sine 220 Hz : residual %6.1f dB  ripple %5.2f dB  lag %d  level %5.1f dB\n", r.residualDb, r.ampRippleDb, r.lag, r.levelDb);
+        CHECK (r.residualDb < -30.0, "Init is transparent on a sine (residual < -30 dB)");
+        CHECK (r.ampRippleDb < 0.5, "Init has no tremolo on a sine (ripple < 0.5 dB)");
+        in.clear();
+        q.reset(); q.prepareToPlay (48000.0, 512); q.presets.load (0);
+        out = liqtest::render (q, bass, 4.0, &in);
+        r = liqtest::measure (in, out);
+        std::printf ("  saw bass    : residual %6.1f dB  lag %d  level %5.1f dB\n", r.residualDb, r.lag, r.levelDb);
+        CHECK (r.residualDb < -20.0, "Init is transparent on a bass line (residual < -20 dB)");
+    }
+
+    std::printf ("Morph engine\n");
+    {
+        auto setp = [] (LiquidationProcessor& pr, const juce::String& pid, float real)
+        { auto* p = pr.apvts.getParameter (pid); p->setValueNotifyingHost (p->convertTo0to1 (real)); };
+        auto saw = [] (int64_t n) { return 0.3f * (float) (2.0 * std::fmod (110.0 * (double) n / 48000.0, 1.0) - 1.0); };
+
+        // STFT round trip: morph on, crossfade fully at A -> must reproduce A
+        {
+            LiquidationProcessor q;
+            q.setPlayConfigDetails (2, 2, 48000.0, 512);
+            q.prepareToPlay (48000.0, 512);
+            q.presets.load (0);
+            setp (q, id::morphOn, 1); setp (q, id::morphX, 0); setp (q, id::morphY, 0); setp (q, id::morphSrc, srcModeler);
+            std::vector<float> in;
+            auto out = liqtest::render (q, saw, 3.0, &in);
+            auto r = liqtest::measure (in, out);
+            std::printf ("  STFT round trip   : residual %6.1f dB  lag %d (latency %d)\n", r.residualDb, r.lag, q.getLatencySamples());
+            CHECK (r.residualDb < -40.0, "STFT reconstruction is transparent");
+            CHECK (r.lag == q.getLatencySamples(), "reported latency matches the signal");
+        }
+        // every algorithm with the modeler: finite, audible, different from the input
+        for (int algo = 0; algo < 5; ++algo)
+        {
+            LiquidationProcessor q;
+            q.setPlayConfigDetails (2, 2, 48000.0, 512);
+            q.prepareToPlay (48000.0, 512);
+            q.presets.load (0);
+            setp (q, id::morphOn, 1); setp (q, id::morphSrc, srcModeler); setp (q, id::morphAlgo, (float) algo);
+            setp (q, id::morphX, 0.6f); setp (q, id::morphY, 1.0f); setp (q, id::formOn, 1); setp (q, id::formShift, 3.0f);
+            std::vector<float> in;
+            auto out = liqtest::render (q, melodyMono, 3.0, &in);
+            auto r = liqtest::measure (in, out);
+            bool finite = true; float pk = 0;
+            for (float v : out) { finite = finite && std::isfinite (v); pk = std::max (pk, std::abs (v)); }
+            std::printf ("  %-8s          : level %6.1f dB  change %6.1f dB  peak %.2f\n", morphAlgoNames()[algo].toRawUTF8(), r.levelDb, r.residualDb, pk);
+            CHECK (finite && pk < 1.0f, ("morph " + morphAlgoNames()[algo] + " bounded").toRawUTF8());
+            CHECK (r.levelDb > -30.0, ("morph " + morphAlgoNames()[algo] + " audible").toRawUTF8());
+            CHECK (r.residualDb > -15.0, ("morph " + morphAlgoNames()[algo] + " changes the sound").toRawUTF8());
+        }
+    }
+
+    std::printf ("Sidechain\n");
+    {
+        LiquidationProcessor q;
+        auto layout = q.getBusesLayout();
+        layout.inputBuses.getReference (1) = juce::AudioChannelSet::stereo();
+        CHECK (q.setBusesLayout (layout), "sidechain layout accepted");
+        q.prepareToPlay (48000.0, 512);
+        q.presets.load (0);
+        auto setp = [&q] (const juce::String& pid, float real) { auto* p = q.apvts.getParameter (pid); p->setValueNotifyingHost (p->convertTo0to1 (real)); };
+        setp (id::morphOn, 1); setp (id::morphSrc, srcAux); setp (id::morphAlgo, morphBlend); setp (id::morphX, 1.0f); setp (id::morphY, 0.0f);
+        juce::AudioBuffer<float> b (4, 512); juce::MidiBuffer m;
+        double eOut = 0, eAux = 0;
+        for (int64_t pos = 0; pos < 48000 * 3; pos += 512)
+        {
+            for (int k = 0; k < 512; ++k)
+            {
+                const float main = melodyMono (pos + k);
+                const float aux = 0.3f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 1000.0 * (double) (pos + k) / 48000.0);
+                b.setSample (0, k, main); b.setSample (1, k, main); b.setSample (2, k, aux); b.setSample (3, k, aux);
+                if (pos > 48000) eAux += aux * aux;
+            }
+            q.processBlock (b, m);
+            if (pos > 48000) for (int k = 0; k < 512; ++k) eOut += b.getSample (0, k) * b.getSample (0, k);
+        }
+        std::printf ("  X-Fade at B: output %.1f dB vs aux\n", 10.0 * std::log10 (eOut / eAux));
+        CHECK (q.auxConnected.load(), "sidechain detected");
+        CHECK (std::abs (10.0 * std::log10 (eOut / eAux)) < 2.0, "X-Fade at B outputs the sidechain signal");
+    }
+
+    std::printf ("Transients and limiter\n");
+    {
+        auto kickOnly = [] (int64_t n) {
+            const double tk = (double) (n % 24000) / 48000.0;
+            return (float) (0.8 * std::exp (-tk * 18.0) * std::sin (2.0 * juce::MathConstants<double>::pi * (45.0 * tk + 140.0 / 40.0 * (1.0 - std::exp (-tk * 40.0))))); };
+        auto attackEnergy = [&] (bool tr)
+        {
+            LiquidationProcessor q;
+            q.setPlayConfigDetails (2, 2, 48000.0, 512);
+            q.prepareToPlay (48000.0, 512);
+            q.presets.load (8);   // Endless Freeze smears the attack
+            auto* p = q.apvts.getParameter (id::trOn); p->setValueNotifyingHost (tr ? 1.0f : 0.0f);
+            q.apvts.getParameter (id::fx (4, "On"))->setValueNotifyingHost (0.0f);   // compare without the reverb
+            std::vector<float> in;
+            auto out = liqtest::render (q, kickOnly, 3.0, &in);
+            const int lat = q.getLatencySamples();
+            double e = 0;   // energy of the first 10 ms after each kick, compared with the input
+            double ref = 0;
+            for (int64_t k = 24000; k + 24000 < (int64_t) in.size() - lat; k += 24000)
+                for (int i = 0; i < 480; ++i)
+                {
+                    const double d = out[(size_t) (k + i + lat)] - in[(size_t) (k + i)];
+                    e += d * d; ref += (double) in[(size_t) (k + i)] * in[(size_t) (k + i)];
+                }
+            return 10.0 * std::log10 (e / ref);
+        };
+        const double off = attackEnergy (false), on = attackEnergy (true);
+        std::printf ("  kick attack error: transients off %.1f dB, on %.1f dB\n", off, on);
+        CHECK (on < off - 10.0, "transient keeper restores the attack");
+
+        LiquidationProcessor q;
+        q.setPlayConfigDetails (2, 2, 48000.0, 512);
+        q.prepareToPlay (48000.0, 512);
+        q.presets.load (0);
+        auto* g = q.apvts.getParameter (id::inputGain); g->setValueNotifyingHost (g->convertTo0to1 (18.0f));
+        auto loud = [] (int64_t n) { return 0.9f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 100.0 * (double) n / 48000.0); };
+        auto out = liqtest::render (q, loud, 2.0);
+        float pk = 0; for (float v : out) pk = std::max (pk, std::abs (v));
+        std::printf ("  limiter: +18 dB input -> peak %.3f\n", pk);
+        CHECK (pk <= 0.9662f, "limiter holds the ceiling");
+    }
+
     std::printf ("Mono track\n");
     {
         LiquidationProcessor mono;
@@ -164,7 +305,6 @@ int main()
         CHECK (mono.setBusesLayout (layout), "mono -> mono layout accepted");
         mono.prepareToPlay (48000.0, 512);
         mono.presets.load (8);   // Endless Freeze
-        mono.apvts.getParameter (id::dryWet)->setValueNotifyingHost (1.0f);
         juce::AudioBuffer<float> b (1, 512); juce::MidiBuffer m;
         double diff = 0, ref = 0; bool finite = true;
         for (int64_t pos = 0; pos < 48000 * 3; pos += 512)

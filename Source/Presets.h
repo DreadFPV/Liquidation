@@ -21,6 +21,7 @@ public:
     void route (int slot, int source, const juce::String& targetId, float amount);
     // Convenience
     void freeRateMs (float ms);
+    void dryWet (float wet);   // sets the Morph / Main In mixer channels
     void syncedRate (int mode, const char* division);
 
 private:

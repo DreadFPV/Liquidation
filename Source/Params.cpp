@@ -67,6 +67,8 @@ juce::StringArray modSourceNames()   { return { "None", "Macro 1", "Macro 2", "M
 juce::StringArray loopLengthNames()  { return { "1 beat", "2 beats", "1 bar", "2 bars", "4 bars" }; }
 double loopLengthBeats (int i)       { static const double b[] { 1, 2, 4, 8, 16 }; return b[juce::jlimit (0, 4, i)]; }
 juce::StringArray scrubModeNames()   { return { "Free", "1/32", "1/16", "1/8", "1/4", "1/2", "1 bar" }; }
+juce::StringArray morphAlgoNames()   { return { "Blend", "Imprint", "Carve", "Weave", "Duck" }; }
+juce::StringArray modelerModeNames() { return { "Pad", "Arp", "Drone", "Psy Bass", "Vowel", "Noise" }; }
 double scrubModeBeats (int i)        { static const double b[] { 0, 0.125, 0.25, 0.5, 1, 2, 4 }; return b[juce::jlimit (0, 6, i)]; }
 
 namespace id
@@ -77,6 +79,8 @@ namespace id
     juce::String fx (int s, const char* f)           { return "fx" + juce::String (s) + f; }
     juce::String mod (int m, const char* f)          { return "mod" + juce::String (m) + f; }
     juce::String mx (int s, const char* f)           { return "mx" + juce::String (s) + f; }
+    juce::String mute (int ch)                       { return "mute" + juce::String (ch); }
+    juce::String solo (int ch)                       { return "solo" + juce::String (ch); }
 }
 
 // ============================================================================
@@ -134,10 +138,12 @@ namespace
             const auto divs = divisionNames();
 
             // ---- global
-            s.f (id::dryWet,     "Dry/Wet",      lin (0, 1),           0.5f);
             s.c (id::routing,    "Dry/Wet Routing", { "Post Effects", "Pre Effects" }, 0);
             s.f (id::inputGain,  "Input Gain",   lin (-24, 24),        0.0f, true, "dB");
             s.f (id::outputGain, "Output Gain",  lin (-24, 24),        0.0f, true, "dB");
+            s.f (id::auxGain,    "Aux Gain",     lin (-24, 24),        0.0f, true, "dB");
+            s.b (id::limitOn,    "Limiter",      true);
+            s.b (id::grainOn,    "Grain Engine", true);
             s.f (id::globalTune, "Global Tune",  lin (415, 466, 0.1f), 440.0f, false, "Hz");
             s.c (id::scaleRoot,  "Scale Root",   noteNames(), 9);          // A
             s.c (id::scaleType,  "Scale Type",   scaleTypeNames(), 2);     // Minor
@@ -169,7 +175,7 @@ namespace
             s.b (id::recHold,      "Record Hold",   false);
             s.b (id::reverse,      "Reverse",       false);
             s.f (id::revProb,      "Reverse Probability", lin (0, 1), 0.0f);
-            s.f (id::spray,        "Spray",         lin (0, 1),        0.05f);
+            s.f (id::spray,        "Spray",         lin (0, 1),        0.0f);
             s.f (id::blur,         "Blur",          lin (0, 1),        0.0f);
             s.f (id::grainLevel,   "Grain Level",   lin (-48, 12),     0.0f, true, "dB");
 
@@ -177,7 +183,7 @@ namespace
             s.f (id::pitch,       "Grain Pitch",   lin (-24, 24),      0.0f, true, "st");
             s.c (id::pitchMode,   "Pitch Mode",    { "Repitch", "Free", "Scale" }, 2);
             s.f (id::detune,      "Detune",        lin (0, 1),         0.0f);
-            s.c (id::retune,      "Retune Mode",   { "Off", "Smooth", "Hard" }, 1);
+            s.c (id::retune,      "Retune Mode",   { "Off", "Smooth", "Hard" }, 0);
             s.c (id::chordMode,   "Chord Mode",    { "Off", "Arp", "Chord" }, 0);
             s.f (id::arpRand,     "Arp Randomize", lin (0, 1),         0.0f);
             s.f (id::chordSpread, "Chord Stereo Spread", lin (0, 1),   0.5f);
@@ -210,7 +216,7 @@ namespace
             s.b (id::imgOn,        "Grain Imager", true);
             s.c (id::spreadMode,   "Spread Mode",  spreadModeNames(), 0);
             s.b (id::smoothSpread, "Smooth Spread", false);
-            s.f (id::spread,       "Spread",       lin (0, 1),         0.3f);
+            s.f (id::spread,       "Spread",       lin (0, 1),         0.0f);
             s.f (id::pan,          "Pan",          lin (-1, 1),        0.0f);
             s.f (id::dimension,    "Dimension",    lin (0, 1),         0.0f);
             s.f (id::dimSize,      "Dimension Size", lin (0, 1),       0.5f);
@@ -246,6 +252,49 @@ namespace
             s.f (id::animRate,    "Animator Rate", skewed (0.01f, 10, 0.5f), 0.25f, false, "Hz");
             s.b (id::animSync,    "Animator Sync", false);
             s.c (id::animDiv,     "Animator Division", divs, defaultDivisionIndex ("1 bar"));
+
+            // ---- morph / formant
+            s.b (id::morphOn,     "Morph",          false);
+            s.c (id::morphSrc,    "Morph Source B", { "Aux In", "Modeler" }, srcModeler);
+            s.f (id::morphX,      "Morph X-Fade",   lin (0, 1),       0.5f);
+            s.f (id::morphY,      "Morph Depth",    lin (0, 1),       1.0f);
+            s.c (id::morphAlgo,   "Morph Algorithm", morphAlgoNames(), 0);
+            s.f (id::morphGamma,  "Morph Gamma",    skewed (0.25f, 4.0f, 1.0f), 1.0f, true, "x");
+            s.f (id::morphDetail, "Morph Detail",   lin (0, 1),       0.5f);
+            s.b (id::formOn,      "Formants",       false);
+            s.f (id::formShift,   "Formant Shift",  lin (-12, 12),    0.0f, true, "st");
+
+            // ---- transients
+            s.b (id::trOn,        "Transients",     false);
+            s.f (id::trSens,      "Transient Sensitivity", lin (0, 1), 0.5f);
+            s.f (id::trLength,    "Transient Length", skewed (2, 300, 40), 40.0f, true, "ms");
+            s.f (id::trAmount,    "Transient Amount", lin (0, 1),   1.0f);
+
+            // ---- modeler
+            s.c (id::mdlMode,     "Modeler Mode",   modelerModeNames(), 0);
+            s.n (id::mdlOctave,   "Modeler Octave", -3, 2, 0);
+            s.c (id::mdlRate,     "Modeler Rate",   divs, defaultDivisionIndex ("1/16"));
+            s.f (id::mdlTone,     "Modeler Tone",   lin (0, 1),       0.5f);
+            s.f (id::mdlMotion,   "Modeler Motion", lin (0, 1),       0.3f);
+            s.b (id::mdlFollow,   "Modeler Follow", false);
+
+            // ---- mixer
+            s.f (id::mixWet,      "Mix Morph",      skewed (0, 1.4f, 0.4f), 1.0f, true, "lvl");
+            s.f (id::mixDry,      "Mix Main In",    skewed (0, 1.4f, 0.4f), 0.0f, true, "lvl");
+            s.f (id::mixAux,      "Mix Aux In",     skewed (0, 1.4f, 0.4f), 0.0f, true, "lvl");
+            s.f (id::mixModel,    "Mix Modeler",    skewed (0, 1.4f, 0.4f), 0.0f, true, "lvl");
+            {
+                const char* chn[] { "Morph", "Main In", "Aux In", "Modeler" };
+                for (int c = 0; c < numMixChannels; ++c)
+                {
+                    s.b (id::mute (c), juce::String ("Mute ") + chn[c], false);
+                    s.b (id::solo (c), juce::String ("Solo ") + chn[c], false);
+                }
+            }
+            s.f (id::revSize,     "Reverb Size",    lin (0, 1),       0.6f);
+            s.f (id::revDamp,     "Reverb Damping", lin (0, 1),       0.4f);
+            s.f (id::revMix,      "Reverb Amount",  lin (0, 1),       0.0f);
+            s.c (id::animTarget,  "Animator Target", { "Morph Pad", "Macros" }, animToMorph);
 
             // ---- effects rack
             const int defFx[] { fxEqualizer, fxChorus, fxDelay, fxReverb };
@@ -327,7 +376,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             case Spec::Float:
             {
                 const auto unit = sp.unit;
-                auto attrs = juce::AudioParameterFloatAttributes().withLabel (unit)
+                auto attrs = juce::AudioParameterFloatAttributes().withLabel (unit == "lvl" ? juce::String ("dB") : unit)
                     .withStringFromValueFunction ([unit] (float v, int)
                     {
                         if (unit == "Hz") return v >= 1000.0f ? juce::String (v / 1000.0f, 2) + "k" : juce::String (v, v < 100.0f ? 1 : 0);
@@ -335,6 +384,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                         if (unit == "ms") return juce::String (v, v < 10.0f ? 1 : 0);
                         if (unit == "st") return juce::String (v, 1);
                         if (unit == "x")  return juce::String (v, 2);
+                        if (unit == "lvl") return v <= 0.0001f ? juce::String ("-inf") : juce::String (20.0f * std::log10 (v), 1);
                         return juce::String (v, 2);
                     });
                 layout.add (std::make_unique<juce::AudioParameterFloat> (pid, sp.name, sp.range, sp.def, attrs));

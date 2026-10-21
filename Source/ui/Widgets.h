@@ -11,6 +11,9 @@ namespace liq::ui
 {
 using APVTS = juce::AudioProcessorValueTreeState;
 
+// German UI text is UTF-8: "für"_de
+inline juce::String operator""_de (const char* s, size_t n) { return juce::String::fromUTF8 (s, (int) n); }
+
 // ---------------------------------------------------------------------------
 // Shared helpers for every page.
 // ---------------------------------------------------------------------------
@@ -22,6 +25,7 @@ struct Ctx
     std::function<bool (const juce::String& paramId, int source)> addModulation;
     std::function<void (const juce::String& paramId)> clearModulation;
     std::function<void()> showMatrix;
+    std::function<void (int page)> openDetails;   // 0 grain, 1 grain fx, 2 effects, 3 modulation
 };
 
 // Rotary knob with name, value readout, modulation ring and drop target for modulators.
@@ -91,21 +95,30 @@ private:
     std::unique_ptr<APVTS::ComboBoxAttachment> attachment;
 };
 
-// Titled panel. Optionally has a power switch bound to a bool parameter.
+// Titled panel with cut corners. Optional power switch (bool parameter), details button and help text.
 class Section : public juce::Component
 {
 public:
     Section (const juce::String& title, APVTS* s = nullptr, const juce::String& powerParam = {});
     void paint (juce::Graphics&) override;
     void resized() override;
-    juce::Rectangle<int> content() const { return getLocalBounds().reduced (10).withTrimmedTop (22); }
+    juce::Rectangle<int> content() const { return getLocalBounds().reduced (12, 10).withTrimmedTop (24); }
     void setAccent (juce::Colour c) { accentColour = c; repaint(); }
+    void setTitle (const juce::String& t) { title = t; repaint(); }
+    void addDetailsButton (std::function<void()> onClick, const juce::String& text = "Details");
+    void setHelp (const juce::String& helpTitle, const juce::String& helpBody) { helpHeading = helpTitle; helpText = helpBody; }
+    bool isOn() const { return power == nullptr || power->getToggleState(); }
+    void refreshPowerState();
+
+    juce::String helpHeading, helpText;
 
 private:
     juce::String title;
     std::unique_ptr<juce::ToggleButton> power;
     std::unique_ptr<APVTS::ButtonAttachment> powerAttachment;
+    std::unique_ptr<juce::TextButton> details;
     juce::Colour accentColour = col::accent;
+    bool lastOn = true;
 };
 
 // Draggable modulator chip (drag onto any knob to modulate it).

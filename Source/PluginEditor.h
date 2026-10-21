@@ -3,7 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
 #include "ui/LiqLookAndFeel.h"
-#include "ui/Panels.h"
+#include "ui/Blocks.h"
 
 class LiquidationEditor : public juce::AudioProcessorEditor,
                           public juce::DragAndDropContainer,
@@ -15,14 +15,22 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool keyPressed (const juce::KeyPress&) override;
 
-    static constexpr int baseW = 1180, baseH = 760;
+    static constexpr int baseW = 1280, baseH = 800;
+
+    // used by the snapshot tool
+    void openDetails (int page) { overlay->open (page); }
+    void closeDetails() { overlay->close(); }
+    void setHelpMode (bool on) { topBar->help.setToggleState (on, juce::sendNotification); }
+    void showHelpFor (juce::Component* c);
 
 private:
     void timerCallback() override;
-    void showTab (int t);
     bool addModulation (const juce::String& paramId, int source);
     void clearModulation (const juce::String& paramId);
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
     LiquidationProcessor& proc;
     liq::ui::LiqLookAndFeel lnf;
@@ -34,17 +42,12 @@ private:
     } content;
 
     std::unique_ptr<liq::ui::TopBar> topBar;
-    std::unique_ptr<liq::ui::GrainPage> grainPage;
-    std::unique_ptr<liq::ui::ShapePage> shapePage;
-    std::unique_ptr<liq::ui::EffectsPage> fxPage;
-    std::unique_ptr<liq::ui::ModPage> modPage;
-    std::unique_ptr<liq::ui::AnimatorPanel> animator;
+    std::unique_ptr<liq::ui::SignalCanvas> canvas;
     std::unique_ptr<liq::ui::ModBar> modBar;
-
-    juce::OwnedArray<juce::TextButton> tabs;
-    int currentTab = 0;
-    juce::TooltipWindow tooltips { this, 600 };
-    int frame = 0;
+    std::unique_ptr<liq::ui::DetailOverlay> overlay;
+    liq::ui::HelpCard helpCard;
+    juce::TooltipWindow tooltips { this, 500 };
+    juce::Component* helpTarget = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LiquidationEditor)
 };

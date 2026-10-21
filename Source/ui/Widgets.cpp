@@ -48,8 +48,10 @@ void Knob::paint (juce::Graphics& g)
 
     if (dropHover)
     {
-        g.setColour (col::mod.withAlpha (0.25f));
-        g.fillRoundedRectangle (getLocalBounds().toFloat(), 6.0f);
+        g.setColour (col::mod.withAlpha (0.18f));
+        g.fillPath (chamfer (getLocalBounds().toFloat(), 6.0f));
+        g.setColour (col::mod);
+        g.strokePath (chamfer (getLocalBounds().toFloat().reduced (0.5f), 6.0f), juce::PathStrokeType (1.0f));
     }
 
     const float real = param != nullptr ? param->convertFrom0to1 (param->getValue()) : 0.0f;
@@ -61,10 +63,9 @@ void Knob::paint (juce::Graphics& g)
         if (unit.isNotEmpty() && ! value.endsWith (unit)) value << " " << unit;
     }
 
-    g.setFont (font (11.5f, true));
-    g.setColour (isEnabled() ? col::text : col::faint);
-    g.drawFittedText (label, text.removeFromTop (13), juce::Justification::centred, 1);
-    g.setFont (font (11.0f));
+    drawCaps (g, label, text.removeFromTop (13).toFloat(), juce::Justification::centred, 12.0f,
+              isEnabled() ? col::text.withAlpha (0.85f) : col::faint, true, 0.05f);
+    g.setFont (fontLight (12.5f));
     g.setColour (ks->isMouseButtonDown() ? col::accent : col::dim);
     g.drawFittedText (value, text, juce::Justification::centred, 1);
 }
@@ -160,29 +161,44 @@ Section::Section (const juce::String& t, APVTS* s, const juce::String& powerPara
         power = std::make_unique<juce::ToggleButton>();
         addAndMakeVisible (*power);
         powerAttachment = std::make_unique<APVTS::ButtonAttachment> (*s, powerParam, *power);
-        power->setTooltip ("Enable / bypass " + t);
+        power->setTooltip ("Ein / Aus: " + t);
+        power->onStateChange = [this] { refreshPowerState(); };
     }
+}
+
+void Section::addDetailsButton (std::function<void()> onClick, const juce::String& text)
+{
+    details = std::make_unique<juce::TextButton> (text);
+    details->onClick = std::move (onClick);
+    details->setTooltip ("Alle Einstellungen dieses Blocks öffnen"_de);
+    addAndMakeVisible (*details);
+    resized();
+}
+
+void Section::refreshPowerState()
+{
+    const bool on = isOn();
+    if (on == lastOn) return;
+    lastOn = on;
+    for (auto* c : getChildren())
+        if (c != power.get() && c != details.get())
+            c->setAlpha (on ? 1.0f : 0.4f);
+    repaint();
 }
 
 void Section::paint (juce::Graphics& g)
 {
-    auto r = getLocalBounds().toFloat().reduced (0.5f);
-    g.setColour (col::panel);
-    g.fillRoundedRectangle (r, 8.0f);
-    g.setColour (col::edge);
-    g.drawRoundedRectangle (r, 8.0f, 1.0f);
-
-    const bool on = power == nullptr || power->getToggleState();
-    g.setColour (on ? accentColour : col::dim);
-    g.fillRoundedRectangle (juce::Rectangle<float> (3.0f, 12.0f).withPosition (10.0f, 10.0f), 1.5f);
-    g.setFont (font (12.5f, true));
-    g.setColour (on ? col::text : col::dim);
-    g.drawText (title.toUpperCase(), 18, 6, getWidth() - 80, 20, juce::Justification::centredLeft);
+    const bool on = isOn();
+    drawPanel (g, getLocalBounds().toFloat(), on, accentColour);
+    const float x = power ? 34.0f : 16.0f;
+    drawCaps (g, title, { x, 6.0f, (float) getWidth() - x - 90.0f, 18.0f }, juce::Justification::centredLeft,
+              13.5f, on ? col::text : col::dim, true, 0.12f);
 }
 
 void Section::resized()
 {
-    if (power) power->setBounds (getWidth() - 44, 6, 38, 20);
+    if (power) power->setBounds (12, 6, 20, 18);
+    if (details) details->setBounds (getWidth() - 74, 6, 64, 18);
 }
 
 // ============================================================================
@@ -194,25 +210,31 @@ ModChip::ModChip (Ctx& c, int s, const juce::String& n) : ctx (c), source (s), n
 
 void ModChip::paint (juce::Graphics& g)
 {
-    auto r = getLocalBounds().toFloat().reduced (1.0f);
-    g.setColour (selected ? col::mod.withAlpha (0.22f) : col::panelHi);
-    g.fillRoundedRectangle (r, 6.0f);
+    auto r = getLocalBounds().toFloat().reduced (0.5f);
+    auto p = chamfer (r, 6.0f);
+    g.setColour (selected ? col::mod.withAlpha (0.14f) : col::panelHi);
+    g.fillPath (p);
     g.setColour (selected ? col::mod : col::edge);
-    g.drawRoundedRectangle (r, 6.0f, 1.0f);
+    g.strokePath (p, juce::PathStrokeType (1.0f));
 
-    auto inner = r.reduced (8.0f, 5.0f);
-    g.setFont (font (12.0f, true));
-    g.setColour (col::text);
-    g.drawText (name, inner.removeFromTop (15.0f), juce::Justification::centredLeft);
-    g.setFont (font (10.5f));
+    auto inner = r.reduced (9.0f, 5.0f);
+    // grip dots: this chip can be dragged
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 2; ++j)
+        {
+            g.setColour (col::faint);
+            g.fillEllipse (inner.getRight() - 8.0f + (float) j * 4.0f, inner.getY() + 3.0f + (float) i * 4.0f, 2.0f, 2.0f);
+        }
+    drawCaps (g, name, inner.removeFromTop (16.0f), juce::Justification::centredLeft, 13.0f, col::text, true, 0.08f);
+    g.setFont (fontLight (12.0f));
     g.setColour (col::dim);
-    g.drawText (subtitle, inner.removeFromTop (13.0f), juce::Justification::centredLeft);
+    g.drawFittedText (subtitle, inner.removeFromTop (15.0f).toNearestInt(), juce::Justification::centredLeft, 1);
 
-    auto bar = inner.removeFromBottom (5.0f);
+    auto bar = inner.removeFromBottom (3.0f);
     g.setColour (col::track);
-    g.fillRoundedRectangle (bar, 2.5f);
+    g.fillRect (bar);
     g.setColour (col::mod);
-    g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * juce::jlimit (0.0f, 1.0f, value)), 2.5f);
+    g.fillRect (bar.withWidth (bar.getWidth() * juce::jlimit (0.0f, 1.0f, value)));
 }
 
 void ModChip::mouseDrag (const juce::MouseEvent& e)
@@ -306,14 +328,17 @@ void IntervalStrip::paint (juce::Graphics&) {}
 void Meter::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
-    g.setColour (col::track);
-    g.fillRoundedRectangle (r, 2.0f);
+    g.setColour (col::bg);
+    g.fillRect (r);
     const float db = juce::Decibels::gainToDecibels (level, -60.0f);
     const float f = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f);
     const bool vertical = r.getHeight() > r.getWidth();
     auto fill = vertical ? r.withTrimmedTop (r.getHeight() * (1.0f - f)) : r.withWidth (r.getWidth() * f);
-    g.setColour (db > -0.5f ? col::red : (db > -9.0f ? col::amber : col::accent));
-    g.fillRoundedRectangle (fill, 2.0f);
+    g.setColour (db > -0.5f ? col::red : (db > -9.0f ? col::amber : col::line.brighter (0.3f)));
+    g.fillRect (fill);
+    g.setColour (col::bg);
+    if (vertical) for (float yy = r.getY() + 3.0f; yy < r.getBottom(); yy += 3.0f) g.drawHorizontalLine ((int) yy, r.getX(), r.getRight());
+    else          for (float xx = r.getX() + 3.0f; xx < r.getRight(); xx += 3.0f) g.drawVerticalLine ((int) xx, r.getY(), r.getBottom());
 }
 
 // ============================================================================
