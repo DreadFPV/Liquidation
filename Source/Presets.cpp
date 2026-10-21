@@ -1,9 +1,6 @@
-#include "Presets.h"
-#include "Params.h"
-#include "dsp/GrainEngine.h"
-#include "dsp/SpectralMorph.h"
-#include "dsp/Modeler.h"
+#include "PresetHelpers.h"
 #include <cmath>
+#include <map>
 
 namespace liq
 {
@@ -33,6 +30,14 @@ void PresetWriter::dryWet (float d)
     set (id::mixDry, std::min (1.0f, 2.0f * (1.0f - d)));
 }
 
+void PresetWriter::macros (const juce::String& n1, const juce::String& h1, const juce::String& n2, const juce::String& h2)
+{
+    state.state.setProperty ("macro1Name", n1, nullptr);
+    state.state.setProperty ("macro1Hint", h1, nullptr);
+    state.state.setProperty ("macro2Name", n2, nullptr);
+    state.state.setProperty ("macro2Hint", h2, nullptr);
+}
+
 void PresetWriter::freeRateMs (float ms)
 {
     setChoice (id::rateMode, rateFree);
@@ -48,36 +53,13 @@ void PresetWriter::syncedRate (int mode, const char* division)
 // ============================================================================
 // Factory presets
 // ============================================================================
+using namespace presets;
+
 namespace
 {
-    enum Src { M1 = 1, M2 = 2, Mod1 = 3, Mod2 = 4, Mod3 = 5, Mod4 = 6 };
+struct ClassicInfo { const char* source; const char* desc; };
 
-    void intervals (PresetWriter& w, std::initializer_list<int> values)
-    {
-        int i = 1;
-        for (int v : values)
-        {
-            w.set (id::interval (i), (float) v);
-            w.setOn (id::intervalOn (i), true);
-            ++i;
-        }
-        for (; i <= numIntervals; ++i) w.setOn (id::intervalOn (i), false);
-    }
-
-    void fx (PresetWriter& w, int slot, int type, float mix, float a, float b, float c, float d)
-    {
-        w.setChoice (id::fx (slot, "Type"), type);
-        w.setOn (id::fx (slot, "On"), true);
-        w.set (id::fx (slot, "Mix"), mix);
-        w.set (id::fx (slot, "A"), a); w.set (id::fx (slot, "B"), b);
-        w.set (id::fx (slot, "C"), c); w.set (id::fx (slot, "D"), d);
-    }
-
-    // amount helper: semitones on the +-24 pitch knob -> normalised offset
-    float semis (float s) { return s / 48.0f; }
-}
-
-const std::vector<FactoryPreset>& PresetManager::factory()
+const std::vector<FactoryPreset>& classicList()
 {
     static const std::vector<FactoryPreset> list {
         { "Init", "Init", [] (PresetWriter& w) {
@@ -347,6 +329,79 @@ const std::vector<FactoryPreset>& PresetManager::factory()
     return list;
 }
 
+// source tag + one-line description for the sound-design presets
+ClassicInfo classicInfo (const juce::String& n)
+{
+    static const std::map<juce::String, ClassicInfo> m {
+        { "Init", { "Alle", "Neutraler Start: klingt wie das Original. Pad links/rechts = Stretch, oben/unten = Tonhöhe." } },
+        { "Fifth Choir", { "Melodie", "Jede Note wird zum Dur-Akkord (Grundton, Terz, Quinte) - breiter Chor." } },
+        { "Triad Halo", { "Synth", "Weiche Akkord-Wolke mit Hall, Grains verschwimmen." } },
+        { "Octave Stack", { "Melodie", "Oktave tiefer und Quinte darüber, weit im Stereo." } },
+        { "Arp Rain", { "Synth", "Macht aus jedem Ton ein 1/16-Arpeggio in deiner Tonart." } },
+        { "Gated Sixteenths", { "Synth", "Zerhackt den Klang im 1/16-Raster, Filter macht ihn rund." } },
+        { "Triplet Bounce", { "Drums", "Triolische Grains springen links/rechts, Delay mit Tonhöhen-Wechsel." } },
+        { "Dotted Echo Grains", { "Synth", "Punktierte Echos, jede Wiederholung einen Ton höher." } },
+        { "Endless Freeze", { "Pad/FX", "Friert den Klang zu einer endlosen Fläche ein." } },
+        { "Slow Motion 4x", { "Pad/FX", "Spielt alles viermal langsamer ab, ohne Tonhöhe zu ändern." } },
+        { "Pad Maker", { "Pad/FX", "Macht aus jedem Sound ein weiches, gefiltertes Pad." } },
+        { "Transient Freeze", { "Drums", "Friert bei jedem Schlag neu ein - rhythmische Flächen." } },
+        { "Crystal Steps", { "Synth", "Glitzernde Echos, die stufenweise ansteigen." } },
+        { "Octave Shimmer", { "Gitarre", "Shimmer-Hall: Echos eine Quinte höher, sehr weit." } },
+        { "Cathedral Grains", { "Pad/FX", "Grains verstreut im Raum, grosser Hall." } },
+        { "Goa Acid Grains", { "Synth", "1/16-Grains mit Acid-Bandpass und Ping-Pong-Delay." } },
+        { "Psy Gate Trance", { "Synth", "Hartes Trance-Gate, einzelne Grains rückwärts." } },
+        { "Full-On Roller", { "Bass", "Rollender Filter pro Grain - für Bass und Leads." } },
+        { "Forest Spores", { "Pad/FX", "Kleine metallische Grains im Raum - Forest-Atmosphäre." } },
+        { "Hi-Tech Shards", { "Drums", "1/32-Splitter mit Bit-Crusher." } },
+        { "Comb Resonator", { "Drums", "Kammfilter in deiner Tonart: Drums werden zu Tönen." } },
+        { "Tape Stop Dreams", { "Pad/FX", "Oktave tiefer und langsam wie ein bremsendes Band." } },
+        { "Reverse Wash", { "Gitarre", "Lange rückwärts gespielte Grains mit Hall." } },
+        { "Vowel Talker", { "Synth", "Vokalfilter bewegt sich im Takt - der Sound spricht." } },
+        { "Granular Oscillator", { "Synth", "Grains so schnell, dass ein neuer Ton in deiner Tonart entsteht." } },
+        { "MIDI Played Grains", { "Alle", "Spiele den Sound mit MIDI-Noten (MIDI-Spur auf Liquidation routen)." } },
+        { "Stutter Scrub", { "Drums", "Ein Sequencer springt durch den Loop - Stutter-Effekt." } },
+        { "Scrub Sequencer", { "Drums", "Baut aus dem Loop eine neue Abfolge im Takt." } },
+        { "Random Slices", { "Drums", "Zufällige Stücke aus dem Loop, teils rückwärts." } },
+        { "Vocal Harmonizer", { "Vocal", "Zweite und dritte Stimme in deiner Tonart." } },
+        { "Hard-Tuned Grains", { "Vocal", "Harte Tonhöhenkorrektur auf jedes Grain." } },
+        { "Formant Up", { "Vocal", "Hellere, kleinere Stimme bei gleicher Tonhöhe." } },
+        { "Formant Down", { "Vocal", "Dunklere, grössere Stimme bei gleicher Tonhöhe." } },
+        { "Wide Ensemble", { "Gitarre", "Verstimmte Kopien im Stereo - breiter Ensemble-Klang." } },
+        { "Morph Pad Blend", { "Alle", "Verschmilzt deine Spur mit einer Akkordfläche." } },
+        { "Vocoder Pad", { "Drums", "Vocoder: die Fläche spricht im Rhythmus deiner Spur." } },
+        { "Vowel Imprint", { "Drums", "Deine Spur bekommt eine Vokal-Klangfarbe." } },
+        { "Tonal Kick", { "Kick", "Die Kick bekommt einen Ton in deiner Tonart, der Anschlag bleibt." } },
+        { "Psy Bass Imprint", { "Kick", "Kick formt einen Psy-Bass (Vocoder-Prinzip)." } },
+        { "Noise Weave", { "Drums", "Rauschen und deine Spur wechseln sich pro Frequenz ab." } },
+        { "Sidechain Spectral Duck", { "Bass", "Bass macht Platz, wo die Sidechain-Kick spielt - nur in deren Frequenzen." } },
+        { "Sidechain Blend", { "Alle", "Mischt deine Spur mit dem Sidechain-Signal im Spektrum." } },
+    };
+    auto it = m.find (n);
+    return it != m.end() ? it->second : ClassicInfo { "Alle", "" };
+}
+}
+
+const std::vector<FactoryPreset>& PresetManager::factory()
+{
+    static const std::vector<FactoryPreset> all = []
+    {
+        std::vector<FactoryPreset> v;
+        for (auto p : classicList())
+        {
+            const auto info = classicInfo (p.name);
+            p.source = juce::String::fromUTF8 (info.source);
+            p.description = juce::String::fromUTF8 (info.desc);
+            p.genre = p.name == "Init" ? juce::String ("Alle") : juce::String ("Sound Design");
+            if (p.category != "Init") p.category = "Sound Design / " + p.category;
+            v.push_back (p);
+        }
+        appendKickMelodyPresets (v);
+        appendGenrePresets (v);
+        return v;
+    }();
+    return all;
+}
+
 // ============================================================================
 PresetManager::PresetManager (juce::AudioProcessorValueTreeState& s) : state (s) {}
 
@@ -384,7 +439,7 @@ juce::StringArray PresetManager::allCategories() const
 {
     juce::StringArray cats;
     for (auto& p : factory()) cats.add (p.category);
-    for (int i = 0; i < userPresets().size(); ++i) cats.add ("User");
+    for (int i = 0; i < userPresets().size(); ++i) cats.add ("Eigene");
     return cats;
 }
 
@@ -422,14 +477,57 @@ void PresetManager::load (int index)
     {
         if (onBeforeFactoryLoad) onBeforeFactoryLoad();
         resetToDefaultsKeepingKey();
+        for (auto* k : { "macro1Name", "macro1Hint", "macro2Name", "macro2Hint" }) state.state.removeProperty (k, nullptr);
         PresetWriter w (state);
         f[(size_t) index].apply (w);
+        deriveMacroNames();
         return;
     }
 
     const auto users = userPresets();
     const int u = index - (int) f.size();
     if (u < users.size()) loadFile (users[u]);
+}
+
+void PresetManager::deriveMacroNames()
+{
+    // presets without explicit names: name the macro after what it drives
+    const auto names = modTargetNames();
+    for (int m = 1; m <= 2; ++m)
+    {
+        const juce::String key = m == 1 ? "macro1Name" : "macro2Name";
+        if (state.state.getProperty (key).toString().isNotEmpty()) continue;
+        juce::StringArray t;
+        for (int s = 1; s <= numMatrixSlots; ++s)
+        {
+            const int src = (int) std::lround (state.getRawParameterValue (id::mx (s, "Src"))->load());
+            const int dst = (int) std::lround (state.getRawParameterValue (id::mx (s, "Dst"))->load());
+            if (src == m && dst > 0 && dst < names.size()) t.addIfNotAlreadyThere (names[dst]);
+        }
+        if (! t.isEmpty())
+        {
+            state.state.setProperty (key, t[0] + (t.size() > 1 ? " +" : ""), nullptr);
+            state.state.setProperty (m == 1 ? "macro1Hint" : "macro2Hint", "Steuert: " + t.joinIntoString (", "), nullptr);
+        }
+    }
+}
+
+juce::String PresetManager::descriptionOf (int i) const
+{
+    const auto& f = factory();
+    return juce::isPositiveAndBelow (i, (int) f.size()) ? f[(size_t) i].description : juce::String ("Eigenes Preset");
+}
+
+juce::String PresetManager::genreOf (int i) const
+{
+    const auto& f = factory();
+    return juce::isPositiveAndBelow (i, (int) f.size()) ? f[(size_t) i].genre : juce::String ("Eigene");
+}
+
+juce::String PresetManager::sourceOf (int i) const
+{
+    const auto& f = factory();
+    return juce::isPositiveAndBelow (i, (int) f.size()) ? f[(size_t) i].source : juce::String ("Alle");
 }
 
 void PresetManager::loadFile (const juce::File& file)

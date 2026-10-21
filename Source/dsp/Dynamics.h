@@ -3,6 +3,7 @@
 #include "DelayLine.h"
 #include <vector>
 #include <atomic>
+#include <cstdint>
 
 namespace liq
 {
@@ -30,6 +31,20 @@ private:
     FixedDelay gateDelay;
     float envFast = 0, envSlow = 0, gate = 0;
     int hold = 0, refractory = 0;
+};
+
+// Detects hits (e.g. kicks) on the live input for the melody triggers.
+class OnsetDetector
+{
+public:
+    void prepare (double sampleRate) { sr = sampleRate; envFast = envSlow = 0.0f; refractory = 0; }
+    // writes 1 into onsets[i] where a hit starts, and a 0..1 envelope into env[i]
+    void process (const float* l, const float* r, int n, float sensitivity, uint8_t* onsets, float* env) noexcept;
+    std::atomic<int> hits { 0 };   // UI counter
+private:
+    double sr = 48000.0;
+    float envFast = 0, envSlow = 0;
+    int refractory = 0;
 };
 
 // Look-ahead peak limiter with constant latency (also when switched off).

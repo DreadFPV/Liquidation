@@ -62,6 +62,8 @@ void LiquidationProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     modSystem.prepare (sampleRate);
     modSystem.seqSteps = steps;
     animator.prepare (sampleRate);
+    morphAnimator.prepare (sampleRate);
+    onsets.prepare (sampleRate);
     dryBuffer.setSize (2, subBlock, false, true, true);
     wetBuffer.setSize (2, subBlock, false, true, true);
     juce::ignoreUnused (samplesPerBlock);
@@ -276,14 +278,19 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
         slot.dst = choice (id::mx (s, "Dst"));
         slot.amount = raw (id::mx (s, "Amt"));
     }
-    const bool animMorph = choice (id::animTarget) == animToMorph;
+    auto divBeats = [this] (const juce::String& pid)
+    { return divisions()[(size_t) juce::jlimit (0, (int) divisions().size() - 1, choice (pid))].beats; };
     AnimatorParams ap;
-    ap.x = animMorph ? raw (id::morphX) : raw (id::macro1);
-    ap.y = animMorph ? raw (id::morphY) : raw (id::macro2);
+    ap.x = raw (id::macro1);
+    ap.y = raw (id::macro2);
     ap.depth = raw (id::animDepth); ap.drift = raw (id::animDrift);
     ap.mode = choice (id::animMode); ap.cycles = (int) std::lround (raw (id::animCycles));
     ap.warp = raw (id::animWarp); ap.rateHz = raw (id::animRate); ap.sync = flag (id::animSync);
-    ap.divBeats = divisions()[(size_t) juce::jlimit (0, (int) divisions().size() - 1, choice (id::animDiv))].beats;
+    ap.divBeats = divBeats (id::animDiv);
+    AnimatorParams mm;
+    mm.x = raw (id::morphX); mm.y = raw (id::morphY);
+    mm.depth = raw (id::mmDepth); mm.drift = 0.3f; mm.mode = choice (id::mmMode); mm.cycles = 2; mm.warp = 0.3f;
+    mm.rateHz = raw (id::mmRate); mm.sync = flag (id::mmSync); mm.divBeats = divBeats (id::mmDiv);
 
     const int routing = choice (id::routing);
     const bool morphOn = flag (id::morphOn);
@@ -306,6 +313,9 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     float bufMdlL[subBlock], bufMdlR[subBlock], bufMorL[subBlock], bufMorR[subBlock];
     float alMainL[subBlock], alMainR[subBlock], alAuxL[subBlock], alAuxR[subBlock], alMdlL[subBlock], alMdlR[subBlock];
     float mixL[subBlock], mixR[subBlock], revL[subBlock], revR[subBlock];
+    uint8_t hits[subBlock];
+    float inEnv[subBlock];
+    const float kickSens = raw (id::mlSens);
 
     for (int start = 0; start < numSamples; start += subBlock)
     {
@@ -328,9 +338,9 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
 
         // ---- modulation
         animator.advance (ap, n, subPpq, bpm, playing);
-        const float m1 = animMorph ? raw (id::macro1) : animator.macro1();
-        const float m2 = animMorph ? raw (id::macro2) : animator.macro2();
-        modSystem.process (mp, matrix, m1, m2, n, subPpq, playing, mainPeak);
+        morphAnimator.advance (mm, n, subPpq, bpm, playing);
+        modSystem.process (mp, matrix, animator.macro1(), animator.macro2(), n, subPpq, playing, mainPeak);
+        onsets.process (bufMainL, bufMainR, n, kickSens, hits, inEnv);
         buildEngineParams (engineParams, subPpq, playing, bpm);
 
         // ---- modeler (only rendered when somebody listens)
@@ -352,7 +362,14 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
             mpar.tone = mod (id::mdlTone);
             mpar.motion = mod (id::mdlMotion);
             mpar.follow = follow;
-            modeler.process (bufMdlL, bufMdlR, n, mpar, engineParams.scale, bpm, subPpq, followMidi);
+            mpar.melody.style = choice (id::mlStyle);
+            mpar.melody.variation = (int) std::lround (mod (id::mlVar));
+            mpar.melody.density = mod (id::mlDensity);
+            mpar.melody.range = (int) std::lround (mod (id::mlRange));
+            mpar.melody.steps = melodyLengthSteps (choice (id::mlLength));
+            mpar.trigger = choice (id::mlTrigger);
+            mpar.glide = mod (id::mlGlide);
+            modeler.process (bufMdlL, bufMdlR, n, mpar, engineParams.scale, bpm, subPpq, followMidi, hits, inEnv);
         }
         else
         {
@@ -364,8 +381,8 @@ void LiquidationProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
         MorphParams mo;
         mo.morphOn = morphOn;
         const float offX = mod (id::morphX) - raw (id::morphX), offY = mod (id::morphY) - raw (id::morphY);
-        mo.x = juce::jlimit (0.0f, 1.0f, (animMorph ? animator.macro1() : raw (id::morphX)) + offX);
-        mo.y = juce::jlimit (0.0f, 1.0f, (animMorph ? animator.macro2() : raw (id::morphY)) + offY);
+        mo.x = juce::jlimit (0.0f, 1.0f, morphAnimator.macro1() + offX);
+        mo.y = juce::jlimit (0.0f, 1.0f, morphAnimator.macro2() + offY);
         mo.algo = choice (id::morphAlgo);
         mo.gamma = mod (id::morphGamma);
         mo.detail = mod (id::morphDetail);
@@ -496,6 +513,17 @@ const juce::String LiquidationProcessor::getProgramName (int index)
 {
     const auto& f = PresetManager::factory();
     return juce::isPositiveAndBelow (index, (int) f.size()) ? f[(size_t) index].name : juce::String();
+}
+
+juce::String LiquidationProcessor::macroName (int m) const
+{
+    const auto v = apvts.state.getProperty (m == 1 ? "macro1Name" : "macro2Name").toString();
+    return v.isNotEmpty() ? v : juce::String ("Macro ") + juce::String (m);
+}
+
+juce::String LiquidationProcessor::macroHint (int m) const
+{
+    return apvts.state.getProperty (m == 1 ? "macro1Hint" : "macro2Hint").toString();
 }
 
 juce::ValueTree LiquidationProcessor::fullState()

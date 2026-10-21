@@ -37,7 +37,7 @@ public:
     Knob (Ctx& ctx, const juce::String& paramId, const juce::String& label);
 
     void setFormatter (std::function<juce::String (float realValue)> f) { formatter = std::move (f); repaint(); }
-    void setLabel (const juce::String& l) { label = l; repaint(); }
+    void setLabel (const juce::String& l) { if (l != label) { label = l; repaint(); } }
     const juce::String& getParamId() const noexcept { return paramId; }
 
     // called by the editor timer

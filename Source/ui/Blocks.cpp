@@ -39,6 +39,7 @@ ChoiceButtons::ChoiceButtons (APVTS& s, const juce::String& pid, juce::StringArr
 {
     auto* param = s.getParameter (pid);
     jassert (param != nullptr);
+    getProperties().set ("helpId", pid);
     for (int i = 0; i < labels.size(); ++i)
     {
         auto* b = buttons.add (new juce::TextButton (labels[i]));
@@ -74,7 +75,7 @@ PowerToggle::PowerToggle (APVTS& s, const juce::String& pid, const juce::String&
 {
     setButtonText (buttonText);
     attachment = std::make_unique<APVTS::ButtonAttachment> (s, pid, *this);
-    if (auto* p = s.getParameter (pid)) setTooltip ("Ein / Aus: " + p->getName (64));
+    getProperties().set ("helpId", pid);
 }
 
 // ----------------------------------------------------------------------------
@@ -85,10 +86,10 @@ FaderRow::FaderRow (Ctx& c, const juce::String& pid, const juce::String& l, int 
     addAndMakeVisible (slider);
     param = ctx.apvts.getParameter (pid);
     attachment = std::make_unique<APVTS::SliderAttachment> (ctx.apvts, pid, slider);
+    getProperties().set ("helpId", pid);
     if (param != nullptr)
     {
         slider.setDoubleClickReturnValue (true, param->getNormalisableRange().convertFrom0to1 (param->getDefaultValue()));
-        slider.setTooltip (param->getName (64) + " (Doppelklick: Standardwert)");
         const auto range = param->getNormalisableRange();
         slider.getProperties().set ("bipolar", range.start < 0.0f && range.end > 0.0f);
     }
@@ -145,12 +146,13 @@ ValueField::ValueField (Ctx& c, const juce::String& pid, const juce::String& lab
     slider.setSliderStyle (juce::Slider::LinearBar);
     slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     slider.getProperties().set ("valueField", label);
+    getProperties().set ("helpId", pid);
     addAndMakeVisible (slider);
     attachment = std::make_unique<APVTS::SliderAttachment> (c.apvts, pid, slider);
     if (auto* p = c.apvts.getParameter (pid))
     {
         slider.setDoubleClickReturnValue (true, p->getNormalisableRange().convertFrom0to1 (p->getDefaultValue()));
-        slider.setTooltip (p->getName (64) + ": ziehen zum Ändern, Doppelklick = Standard"_de);
+
     }
 }
 
@@ -159,9 +161,9 @@ ValueField::ValueField (Ctx& c, const juce::String& pid, const juce::String& lab
 // ============================================================================
 void MorphPad::update()
 {
-    const bool animMorph = choiceOf (ctx, id::animTarget) == animToMorph && rawOf (ctx, id::animDepth) > 0.001f;
-    const float x = animMorph ? ctx.proc.animator.cursorX.load() : rawOf (ctx, id::morphX);
-    const float y = animMorph ? ctx.proc.animator.cursorY.load() : rawOf (ctx, id::morphY);
+    const bool moving = rawOf (ctx, id::mmDepth) > 0.001f;
+    const float x = moving ? ctx.proc.morphAnimator.cursorX.load() : rawOf (ctx, id::morphX);
+    const float y = moving ? ctx.proc.morphAnimator.cursorY.load() : rawOf (ctx, id::morphY);
     if (std::abs (x - cx) > 0.001f || std::abs (y - cy) > 0.001f) { cx = x; cy = y; }
     repaint();
 }
@@ -230,15 +232,14 @@ void MorphPad::paint (juce::Graphics& g)
     drawCaps (g, "Full morph", { r.getX() + 8, r.getY() + 5, 90, 12 }, juce::Justification::centredLeft, 10.0f, col::faint);
 
     // animator path
-    const float depth = rawOf (ctx, id::animDepth);
-    if (on && depth > 0.001f && choiceOf (ctx, id::animTarget) == animToMorph)
+    const float depth = rawOf (ctx, id::mmDepth);
+    if (on && depth > 0.001f)
     {
         juce::Path path;
         for (int i = 0; i <= 300; ++i)
         {
             float px, py;
-            Animator::shapePoint (choiceOf (ctx, id::animMode), (int) std::lround (rawOf (ctx, id::animCycles)),
-                                  rawOf (ctx, id::animWarp), i / 300.0, px, py);
+            Animator::shapePoint (choiceOf (ctx, id::mmMode), 2, 0.3f, i / 300.0, px, py);
             const auto pt = toScreen (hx + px * depth * 0.5f, hy + py * depth * 0.5f);
             if (i == 0) path.startNewSubPath (pt); else path.lineTo (pt);
         }
@@ -538,8 +539,12 @@ void ModelerBlock::update()
     notes.update();
     meter.setLevel (ctx.proc.modeler.level.load());
     const int m = choiceOf (ctx, id::mdlMode);
-    rate->setEnabled (m == mdlArp || m == mdlPsyBass);
+    rate->setEnabled (m == mdlArp || m == mdlPsyBass || m == mdlMelody);
     rateLabel.setAlpha (rate->isEnabled() ? 1.0f : 0.4f);
+    const auto t = m == mdlMelody
+        ? "Melodie-Modus: Stil, Variante, Kick-Auslöser und MIDI-Export findest du auf der Play-Seite."_de
+        : "Interne Klangquelle für Signal B - in Tonart und Tempo. Der Schalter rechts wählt Aux oder Modeler als B."_de;
+    if (hint.getText() != t) hint.setText (t, juce::dontSendNotification);
 }
 
 // ----------------------------------------------------------------------------
@@ -553,8 +558,8 @@ MorphBlock::MorphBlock (Ctx& c)
     sec->addAndMakeVisible (algoInfo);
     gamma = &knob (id::morphGamma, "Gamma", sec);
     detail = &knob (id::morphDetail, "Detail", sec);
-    depth = &knob (id::animDepth, "Motion", sec);
-    speed = &knob (id::animRate, "Speed", sec);
+    depth = &knob (id::mmDepth, "Motion", sec);
+    speed = &knob (id::mmRate, "Speed", sec);
     gamma->setFormatter ([] (float v) { return juce::String (v, 2) + "x"; });
     detail->setFormatter (pct);
     depth->setFormatter (pct);
@@ -562,9 +567,9 @@ MorphBlock::MorphBlock (Ctx& c)
     gamma->setTooltip ("Gamma: Kontrast im Spektrum. Über 1 = spitzer, unter 1 = weicher."_de);
     detail->setTooltip ("Detail: wie fein die Klangfarbe übertragen wird (Imprint, Carve, Duck, Formanten)."_de);
     depth->setTooltip ("Motion: bewegt den Punkt im Pad automatisch (0 = aus).");
-    shape = &combo (id::animMode, sec);
-    div = &combo (id::animDiv, sec);
-    sync = &toggle (id::animSync, "Sync", sec);
+    shape = &combo (id::mmMode, sec);
+    div = &combo (id::mmDiv, sec);
+    sync = &toggle (id::mmSync, "Sync", sec);
     motionLabel.setText ("MOTION", juce::dontSendNotification);
     motionLabel.setFont (font (12.0f, true));
     motionLabel.setColour (juce::Label::textColourId, col::text.withAlpha (0.8f));
@@ -616,7 +621,7 @@ void MorphBlock::update()
     }
     const bool envAlgo = a == morphImprint || a == morphCarve || a == morphDuck;
     detail->setAlpha (envAlgo || flagOf (ctx, id::formOn) ? 1.0f : 0.5f);
-    const bool s = flagOf (ctx, id::animSync);
+    const bool s = flagOf (ctx, id::mmSync);
     showIf (speed, ! s);
     showIf (div, s);
 
@@ -1089,7 +1094,24 @@ TopBar::TopBar (Ctx& c) : Page (c), tune (c, id::globalTune, "A4")
     root->setTooltip ("Grundton deiner Tonart");
     scale->setTooltip ("Skala - gilt für alles, was 'in Key' arbeitet"_de);
     addAndMakeVisible (tune);
+    for (auto* b : { &playTab, &editTab })
+    {
+        b->setRadioGroupId (4001);
+        b->setClickingTogglesState (true);
+        addAndMakeVisible (b);
+    }
+    playTab.getProperties().set ("helpTitle", juce::String ("Play"));
+    playTab.getProperties().set ("helpText", "Spielen: Preset-Finder, XY-Pad, Melodie-Generator und die wichtigsten Regler."_de);
+    editTab.getProperties().set ("helpTitle", juce::String ("Edit"));
+    editTab.getProperties().set ("helpText", "Bearbeiten: der ganze Signalfluss mit allen Blöcken und Detailseiten."_de);
+    playTab.onClick = [this] { if (playTab.getToggleState() && onPage) onPage (0); };
+    editTab.onClick = [this] { if (editTab.getToggleState() && onPage) onPage (1); };
     refreshPresetList();
+}
+
+void TopBar::setPage (int p)
+{
+    (p == 0 ? playTab : editTab).setToggleState (true, juce::dontSendNotification);
 }
 
 void TopBar::refreshPresetList()
@@ -1165,6 +1187,10 @@ void TopBar::resized()
     r.removeFromLeft (10);
     tune.setBounds (r.removeFromLeft (110));
     help.setBounds (r.removeFromRight (34));
+    r.removeFromRight (10);
+    editTab.setBounds (r.removeFromRight (54));
+    r.removeFromRight (2);
+    playTab.setBounds (r.removeFromRight (54));
 }
 
 void TopBar::update()
@@ -1239,6 +1265,8 @@ void ModBar::resized()
 
 void ModBar::update()
 {
+    m1->setLabel (ctx.proc.macroName (1));
+    m2->setLabel (ctx.proc.macroName (2));
     std::array<juce::StringArray, 7> targets;
     const auto names = modTargetNames();
     for (int slot = 1; slot <= numMatrixSlots; ++slot)

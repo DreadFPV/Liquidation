@@ -59,6 +59,33 @@ void TransientKeeper::process (const float* liveL, const float* liveR, const flo
 }
 
 // ============================================================================
+void OnsetDetector::process (const float* l, const float* r, int n, float sensitivity, uint8_t* onsets, float* env) noexcept
+{
+    const float fa = 1.0f - std::exp (-1.0f / (0.0004f * (float) sr));
+    const float fr = 1.0f - std::exp (-1.0f / (0.012f * (float) sr));
+    const float sa = 1.0f - std::exp (-1.0f / (0.050f * (float) sr));
+    const float srl = 1.0f - std::exp (-1.0f / (0.250f * (float) sr));
+    const float ratio = 1.3f + (1.0f - sensitivity) * 3.0f;
+    const float floorLvl = std::pow (10.0f, (-54.0f + (1.0f - sensitivity) * 30.0f) / 20.0f);
+    for (int i = 0; i < n; ++i)
+    {
+        const float x = std::max (std::abs (l[i]), std::abs (r[i]));
+        envFast += (x > envFast ? fa : fr) * (x - envFast);
+        envSlow += (x > envSlow ? sa : srl) * (x - envSlow);
+        uint8_t hit = 0;
+        if (refractory > 0) --refractory;
+        else if (envFast > envSlow * ratio && envFast > floorLvl)
+        {
+            hit = 1;
+            refractory = (int) (0.07 * sr);
+            hits.fetch_add (1, std::memory_order_relaxed);
+        }
+        onsets[i] = hit;
+        env[i] = envFast;
+    }
+}
+
+// ============================================================================
 void Limiter::prepare (double sampleRate)
 {
     sr = sampleRate;

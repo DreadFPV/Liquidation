@@ -43,6 +43,9 @@ void Modeler::reset()
     for (auto& f : filt) f = {};
     for (auto& ch : formant) for (auto& f : ch) f = {};
     lfo = 0.0; lastStep = -1; arpIndex = 0; env = 0.0f; meter = 0.0f;
+    lastMelStep = -1; kickIndex = 0; ampEnv = filtEnv = 0.0f; gateOpen = false; gateLeft = 0.0;
+    duck = envFollow = 0.0f; attacking = false; lastSettings = { -1, -1, -1.0f, -1, -1 };
+    for (auto& f : melFilt) f = {};
 }
 
 float Modeler::noteHz (int midi) const noexcept
@@ -50,8 +53,168 @@ float Modeler::noteHz (int midi) const noexcept
     return a4 * std::pow (2.0f, ((float) midi - 69.0f) / 12.0f);
 }
 
+float Modeler::noteHzF (float midi) const noexcept
+{
+    return a4 * std::pow (2.0f, (midi - 69.0f) / 12.0f);
+}
+
+int Modeler::styleOctaveOffset (int style) noexcept
+{
+    switch (style)
+    {
+        case mlGoaLead: case mlRollingArp: case mlHook: case mlStabs: case mlChords: return 12;
+        default: return 0;
+    }
+}
+
+void Modeler::triggerMelodyStep (const MelodyStep& st, const Scale& scale, int root, double stepSamples, float glide, int style) noexcept
+{
+    const int base = liq::stepNote (st, scale, root);
+    mTarget = (float) base;
+    const bool doGlide = (st.slide || style == mlReese) && gateOpen;
+    const float glideMs = 15.0f + glide * 180.0f;
+    glideCoef = doGlide ? 1.0f - std::exp (-1.0f / (glideMs * 0.001f * (float) sr)) : 1.0f;
+    if (! doGlide) mNote = mTarget;
+    chordNotes = st.chord ? 3 : 1;
+    if (st.chord)
+    {
+        chordOffsets[0] = 0.0f;
+        chordOffsets[1] = (float) (scale.shiftDegrees (base, 2) - base);
+        chordOffsets[2] = (float) (scale.shiftDegrees (base, 4) - base);
+    }
+    accent = st.velocity;
+    if (! doGlide) { attacking = true; filtEnv = 1.0f; }
+    gateLeft = std::max (1.0, stepSamples * (double) st.length * 0.92);
+    gateOpen = true;
+    currentNote.store (base, std::memory_order_relaxed);
+}
+
+void Modeler::renderMelody (float* L, float* R, int n, const ModelerParams& p, const Scale& scale, int root,
+                            double bpm, double ppq, const uint8_t* onsets, const float* inEnv) noexcept
+{
+    const auto& ms = p.melody;
+    if (ms.style != lastSettings.style || ms.variation != lastSettings.variation || ms.range != lastSettings.range
+        || ms.steps != lastSettings.steps || std::abs (ms.density - lastSettings.density) > 0.02f)
+    {
+        phrase = generatePhrase (ms);
+        lastSettings = ms;
+        lastSettings.density = ms.density;
+    }
+
+    const int style = ms.style;
+    const bool bass = style == mlReese || style == mlRollingBass || style == mlAcid || style == mlDarkPulse;
+    const bool pluck = ! (style == mlReese || style == mlChords || style == mlHook);
+    const float tone = std::clamp (p.tone, 0.0f, 1.0f);
+    const float motion = std::clamp (p.motion, 0.0f, 1.0f);
+    const double rate = std::max (1.0 / 64.0, p.rateBeats);
+    const double beatsPerSample = bpm / 60.0 / sr;
+    const double stepSamples = rate / beatsPerSample;
+    const int r = root + styleOctaveOffset (style);
+
+    const float atk = 1.0f - std::exp (-1.0f / (0.002f * (float) sr));
+    const float rel = 1.0f - std::exp (-1.0f / (0.035f * (float) sr));
+    const float decayS = pluck ? (0.07f + tone * 0.35f) : 2.5f;
+    const float dec = std::exp (-1.0f / (decayS * (float) sr));
+    const float fdec = std::exp (-1.0f / ((0.05f + tone * 0.25f) * (float) sr));
+    const float envF = 1.0f - std::exp (-1.0f / (0.008f * (float) sr));
+    const float duckRel = std::exp (-1.0f / (0.11f * (float) sr));
+    const float baseCut = (bass ? 90.0f : 220.0f) * std::pow (2.0f, tone * 4.5f);
+    const float envAmt = (style == mlAcid ? 5.0f : 3.5f) * (0.4f + 0.6f * accent);
+    const float reso = style == mlAcid ? 0.25f + (1.0f - tone) * 0.15f : (style == mlReese ? 0.9f : 1.1f);
+    const float det = 0.002f + motion * 0.008f + (style == mlReese ? 0.006f : 0.0f);
+
+    for (int i = 0; i < n; ++i)
+    {
+        const double q = ppq + (double) i * beatsPerSample;
+        const long long step = (long long) std::floor (q / rate);
+        const bool onset = onsets != nullptr && onsets[i] != 0;
+        if (onset) duck = 1.0f;
+
+        if (p.trigger == trigKickStep)
+        {
+            if (onset)
+            {
+                for (int k = 0; k < phrase.length; ++k)
+                {
+                    kickIndex = (kickIndex + 1) % phrase.length;
+                    if (phrase.steps[(size_t) kickIndex].on) break;
+                }
+                auto st = phrase.steps[(size_t) kickIndex];
+                st.length = std::max (st.length, 2);
+                triggerMelodyStep (st, scale, r, stepSamples * 2.0, p.glide, style);
+                melodyStep.store (kickIndex, std::memory_order_relaxed);
+            }
+        }
+        else if (step != lastMelStep)
+        {
+            lastMelStep = step;
+            const int idx = (int) (((step % phrase.length) + phrase.length) % phrase.length);
+            const auto& st = phrase.steps[(size_t) idx];
+            melodyStep.store (idx, std::memory_order_relaxed);
+            const bool blocked = p.trigger == trigBetweenKicks && duck > 0.6f;
+            if (st.on && ! blocked) triggerMelodyStep (st, scale, r, stepSamples, p.glide, style);
+        }
+
+        // envelopes
+        if (gateOpen)
+        {
+            gateLeft -= 1.0;
+            if (gateLeft <= 0.0) gateOpen = false;
+        }
+        if (gateOpen)
+        {
+            const float target = pluck ? 0.0f : 0.85f;
+            if (attacking)
+            {
+                ampEnv += atk * (1.05f - ampEnv);
+                if (ampEnv >= 1.0f) { ampEnv = 1.0f; attacking = false; }
+            }
+            else
+            {
+                ampEnv = target + (ampEnv - target) * dec;
+            }
+        }
+        else
+        {
+            ampEnv -= rel * ampEnv;
+        }
+        filtEnv *= fdec;
+        mNote += glideCoef * (mTarget - mNote);
+        duck *= duckRel;
+        if (inEnv != nullptr) envFollow += envF * (std::min (1.0f, inEnv[i] * 2.5f) - envFollow);
+
+        lfo += (0.15 + motion * 5.0) / sr; if (lfo >= 1.0) lfo -= 1.0;
+        const float vib = motion * 0.12f * std::sin (2.0f * pi * (float) lfo);
+
+        float l = 0.0f, rr = 0.0f;
+        for (int v = 0; v < chordNotes; ++v)
+        {
+            const double hz = noteHzF (mNote + (v > 0 ? chordOffsets[(size_t) v] : 0.0f) + vib);
+            l  += mel[(size_t) v * 2].next (hz * (1.0 - det) / sr);
+            rr += mel[(size_t) v * 2 + 1].next (hz * (1.0 + det) / sr);
+        }
+        if (bass)
+        {
+            const double sub = noteHzF (mNote - 12.0f);
+            const float s = mel[6].next (sub / sr);
+            l += s * 0.5f; rr += s * 0.5f;
+        }
+        const float norm = chordNotes > 1 ? 0.28f : 0.45f;
+        const float cut = baseCut * std::pow (2.0f, envAmt * filtEnv);
+        float lp, bp, hp;
+        melFilt[0].process (l * norm, svfG (cut, sr), reso, lp, bp, hp); l = lp;
+        melFilt[1].process (rr * norm, svfG (cut * 1.01f, sr), reso, lp, bp, hp); rr = lp;
+
+        float g = ampEnv * (0.55f + 0.45f * accent);
+        if (p.trigger == trigKickGate) g *= envFollow;
+        if (p.trigger == trigBetweenKicks) g *= 1.0f - duck;
+        L[i] = std::tanh (l * g * 1.6f);
+        R[i] = std::tanh (rr * g * 1.6f);
+    }
+}
+
 void Modeler::process (float* L, float* R, int n, const ModelerParams& p, const Scale& scale,
-                       double bpm, double ppq, float followMidi) noexcept
+                       double bpm, double ppq, float followMidi, const uint8_t* onsets, const float* inEnv) noexcept
 {
     a4 = scale.a4;
 
@@ -70,6 +233,14 @@ void Modeler::process (float* L, float* R, int n, const ModelerParams& p, const 
     const double lfoInc = (0.07 + motion * 0.5) / sr;
 
     float peak = 0.0f;
+    if (p.mode == mdlMelody)
+    {
+        renderMelody (L, R, n, p, scale, r, bpm, ppq, onsets, inEnv);
+        for (int i = 0; i < n; ++i) peak = std::max (peak, std::max (std::abs (L[i]), std::abs (R[i])));
+        meter = std::max (peak, meter * 0.9f);
+        level.store (meter, std::memory_order_relaxed);
+        return;
+    }
     for (int i = 0; i < n; ++i)
     {
         lfo += lfoInc; if (lfo >= 1.0) lfo -= 1.0;
@@ -112,18 +283,18 @@ void Modeler::process (float* L, float* R, int n, const ModelerParams& p, const 
                         // rolling bass: rests on the beat (where the kick sits)
                         const int perBeat = std::max (1, (int) std::lround (1.0 / rate));
                         trigger = perBeat < 2 || (step % perBeat) != 0;
-                        stepNote = r - 12;
+                        arpNote = r - 12;
                     }
                     else
                     {
                         static const int degs[6] { 0, 2, 4, 7, 4, 2 };
-                        stepNote = scale.shiftDegrees (r, degs[arpIndex % 6]) + 12;
+                        arpNote = scale.shiftDegrees (r, degs[arpIndex % 6]) + 12;
                         ++arpIndex;
                     }
                     if (trigger) env = 1.0f;
-                    currentNote.store (stepNote, std::memory_order_relaxed);
+                    currentNote.store (arpNote, std::memory_order_relaxed);
                 }
-                const double hz = noteHz (stepNote);
+                const double hz = noteHz (arpNote);
                 const float s1 = osc[0].next (hz / sr), s2 = osc[1].next (hz * (bass ? 1.0 : 1.004) / sr);
                 const float decay = bass ? 0.06f + tone * 0.12f : 0.08f + tone * 0.35f;
                 env *= std::exp (-1.0f / (decay * (float) sr));

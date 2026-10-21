@@ -68,7 +68,12 @@ juce::StringArray loopLengthNames()  { return { "1 beat", "2 beats", "1 bar", "2
 double loopLengthBeats (int i)       { static const double b[] { 1, 2, 4, 8, 16 }; return b[juce::jlimit (0, 4, i)]; }
 juce::StringArray scrubModeNames()   { return { "Free", "1/32", "1/16", "1/8", "1/4", "1/2", "1 bar" }; }
 juce::StringArray morphAlgoNames()   { return { "Blend", "Imprint", "Carve", "Weave", "Duck" }; }
-juce::StringArray modelerModeNames() { return { "Pad", "Arp", "Drone", "Psy Bass", "Vowel", "Noise" }; }
+juce::StringArray modelerModeNames() { return { "Pad", "Arp", "Drone", "Psy Bass", "Vowel", "Noise", "Melody" }; }
+juce::StringArray melodyStyleNames() { return { "Goa Lead", "Rolling Arp", "Acid Line", "Offbeat Stabs", "Dark Pulse",
+                                                 "Hook", "Reese Bass", "Chords", "Rolling Bass" }; }
+juce::StringArray melodyTriggerNames() { return { "Grid", "Kick Step", "Kick Gate", "Between Kicks" }; }
+juce::StringArray melodyLengthNames() { return { "1 bar", "2 bars", "4 bars" }; }
+int melodyLengthSteps (int i) { static const int s[] { 16, 32, 64 }; return s[juce::jlimit (0, 2, i)]; }
 double scrubModeBeats (int i)        { static const double b[] { 0, 0.125, 0.25, 0.5, 1, 2, 4 }; return b[juce::jlimit (0, 6, i)]; }
 
 namespace id
@@ -294,7 +299,21 @@ namespace
             s.f (id::revSize,     "Reverb Size",    lin (0, 1),       0.6f);
             s.f (id::revDamp,     "Reverb Damping", lin (0, 1),       0.4f);
             s.f (id::revMix,      "Reverb Amount",  lin (0, 1),       0.0f);
-            s.c (id::animTarget,  "Animator Target", { "Morph Pad", "Macros" }, animToMorph);
+            s.f (id::mmDepth,     "Morph Motion",   lin (0, 1),       0.0f, false);
+            s.f (id::mmRate,      "Morph Motion Rate", skewed (0.01f, 10, 0.5f), 0.25f, false, "Hz");
+            s.b (id::mmSync,      "Morph Motion Sync", false);
+            s.c (id::mmDiv,       "Morph Motion Division", divs, defaultDivisionIndex ("1 bar"));
+            s.c (id::mmMode,      "Morph Motion Shape", { "Orbit", "Weave" }, 0);
+
+            // ---- melody generator
+            s.c (id::mlStyle,     "Melody Style",   melodyStyleNames(), 0);
+            s.f (id::mlVar,       "Melody Variation", lin (1, 99, 1), 1.0f, true);
+            s.f (id::mlDensity,   "Melody Density", lin (0, 1),       0.7f);
+            s.f (id::mlRange,     "Melody Range",   lin (1, 3, 1),    2.0f, true, "oct");
+            s.c (id::mlLength,    "Melody Length",  melodyLengthNames(), 1);
+            s.c (id::mlTrigger,   "Melody Trigger", melodyTriggerNames(), 0);
+            s.f (id::mlGlide,     "Melody Glide",   lin (0, 1),       0.2f);
+            s.f (id::mlSens,      "Kick Sensitivity", lin (0, 1),     0.6f);
 
             // ---- effects rack
             const int defFx[] { fxEqualizer, fxChorus, fxDelay, fxReverb };
@@ -384,6 +403,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                         if (unit == "ms") return juce::String (v, v < 10.0f ? 1 : 0);
                         if (unit == "st") return juce::String (v, 1);
                         if (unit == "x")  return juce::String (v, 2);
+                        if (unit == "oct") return juce::String ((int) std::lround (v));
                         if (unit == "lvl") return v <= 0.0001f ? juce::String ("-inf") : juce::String (20.0f * std::log10 (v), 1);
                         return juce::String (v, 2);
                     });

@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "ui/HelpTexts.h"
 
 using namespace liq;
 using namespace liq::ui;
@@ -19,15 +20,20 @@ LiquidationEditor::LiquidationEditor (LiquidationProcessor& p)
     canvas  = std::make_unique<SignalCanvas> (ctx);
     modBar  = std::make_unique<ModBar> (ctx);
     overlay = std::make_unique<DetailOverlay> (ctx);
+    playPage = std::make_unique<PlayPage> (ctx);
     content.addAndMakeVisible (*topBar);
-    content.addAndMakeVisible (*canvas);
+    content.addChildComponent (*canvas);
+    content.addAndMakeVisible (*playPage);
+    content.addAndMakeVisible (infoBar);
     content.addAndMakeVisible (*modBar);
     content.addChildComponent (*overlay);
     content.addChildComponent (helpCard);
     helpCard.setInterceptsMouseClicks (false, false);
 
-    modBar->onModulatorClicked = [this] (int m) { overlay->selectModulator (m); overlay->open (3); };
-    modBar->onMatrix = [this] { overlay->open (3); };
+    modBar->onModulatorClicked = [this] (int m) { setPage (1); overlay->selectModulator (m); overlay->open (3); };
+    modBar->onMatrix = [this] { setPage (1); overlay->open (3); };
+    topBar->onPage = [this] (int p) { setPage (p); };
+    setPage ((int) proc.apvts.state.getProperty ("uiPage", 0));
     topBar->help.onClick = [this]
     {
         helpTarget = nullptr;
@@ -67,8 +73,51 @@ void LiquidationEditor::resized()
     content.setTransform (juce::AffineTransform::scale (scale));
     topBar->setBounds (0, 0, baseW, 56);
     canvas->setBounds (0, 56, baseW, 656);
-    modBar->setBounds (0, 712, baseW, 88);
+    playPage->setBounds (0, 56, baseW, 656);
+    infoBar.setBounds (0, 712, baseW, 40);
+    modBar->setBounds (0, 752, baseW, 88);
     overlay->setBounds (0, 56, baseW, 656);
+}
+
+void LiquidationEditor::setPage (int p)
+{
+    page = juce::jlimit (0, 1, p);
+    proc.apvts.state.setProperty ("uiPage", page, nullptr);
+    topBar->setPage (page);
+    if (page == 0) overlay->close();
+    playPage->setVisible (page == 0);
+    canvas->setVisible (page == 1);
+    helpTarget = nullptr;
+    helpCard.setVisible (false);
+}
+
+void LiquidationEditor::updateInfo (juce::Component* c)
+{
+    for (auto* x = c; x != nullptr && x != &content; x = x->getParentComponent())
+    {
+        auto& props = x->getProperties();
+        if (props.contains ("helpId"))
+        {
+            const auto h = helpFor (props["helpId"].toString());
+            if (h.valid()) { infoBar.setText (h.title, h.what, h.more, h.less); return; }
+        }
+        if (props.contains ("helpText"))
+        {
+            infoBar.setText (props.getWithDefault ("helpTitle", "").toString(), props["helpText"].toString(), {}, {});
+            return;
+        }
+        if (auto* s = dynamic_cast<Section*> (x); s != nullptr && s->helpText.isNotEmpty())
+        {
+            infoBar.setText (s->helpHeading, s->helpText, {}, {});
+            return;
+        }
+        if (x == modBar.get())
+        {
+            infoBar.setText ("Modulation", "Quelle auf einen Regler ziehen. Rechtsklick auf den Regler entfernt sie."_de, {}, {});
+            return;
+        }
+    }
+    infoBar.setText ({}, {}, {}, {});
 }
 
 bool LiquidationEditor::keyPressed (const juce::KeyPress& k)
@@ -102,6 +151,7 @@ void LiquidationEditor::showHelpFor (juce::Component* c)
 
 void LiquidationEditor::mouseMove (const juce::MouseEvent& e)
 {
+    updateInfo (e.eventComponent);
     if (! topBar->help.getToggleState() || overlay->isVisible()) return;
     showHelpFor (e.eventComponent);
 }
@@ -155,7 +205,12 @@ void LiquidationEditor::timerCallback()
 {
     topBar->update();
     modBar->update();
-    if (overlay->isVisible())
+    if (page == 0)
+    {
+        playPage->update();
+        playPage->refreshModulation();
+    }
+    else if (overlay->isVisible())
     {
         overlay->update();
         overlay->refreshModulation();

@@ -12,8 +12,11 @@ MODELER ────────────┴─ B ────┘            
 Originale (zeitgleich ausgerichtet) ─────────────────────────────────────────────────────────────┘
 ```
 
-Die Oberfläche zeigt genau diesen Fluss. Jeder Block hat die wichtigsten Regler direkt sichtbar,
-**Details** öffnet alle Einstellungen. **?** oben rechts schaltet den Hilfe-Modus ein.
+Zwei Seiten (oben rechts **PLAY | EDIT**):
+- **Play** – Preset-Finder (Quelle × Genre), grosses XY-Pad für Macro 1/2 mit Animator-Figuren, die 8 wichtigsten Klangregler, Melodie-Generator und Tipps.
+- **Edit** – der ganze Signalfluss oben. Jeder Block zeigt die wichtigsten Regler, **Details** öffnet alles.
+
+Die **Info-Leiste** unten erklärt, was unter der Maus liegt: was der Regler macht, was bei mehr und bei weniger passiert. **?** schaltet zusätzlich den Hilfe-Modus mit Karten pro Block ein.
 
 ## Funktionen
 
@@ -35,9 +38,19 @@ Die Oberfläche zeigt genau diesen Fluss. Jeder Block hat die wichtigsten Regler
 - 4 Effekt-Slots (Chorus, Compressor, Delay, Distortion, EQ, Filter, Reverb, Shifter), Pre/Post
 - Output-Limiter
 
+**Melodie-Generator (Kick → Melodie)**
+- Der Modeler schreibt fertige Phrasen in deiner Tonart: Goa Lead, Rolling Arp, Acid, Stabs, Dark Pulse, Hook, Reese, Chords, Rolling Bass
+- Variante 1–99 (jede Zahl = andere Melodie, immer gleich reproduzierbar), Dichte, Umfang, Glide, Länge 1/2/4 Takte
+- Auslöser: Grid (im Takt), Kick Step (jede Kick = nächste Note), Kick Gate (klingt nur mit der Kick), Between Kicks (Offbeats)
+- **MIDI ziehen**: die aktuelle Phrase als MIDI-Part direkt auf eine Cubase-Spur ziehen
+
 **Modulation & Presets**
 - 2 Macros + 4 Modulatoren (LFO, Sequencer, Envelope Follower), 16-Slot-Matrix, Drag & Drop auf jeden Regler
-- 41 Werkpresets (Harmonic, Rhythmic, Freeze & Pads, Shimmer, Goa / Psy, Transform, Glitch, Vocal, Morph) und eigene Presets
+- 203 Werkpresets und eigene Presets
+  - 8 × **Kick → Melodie**
+  - 9 Genres × 17 Presets: Goa, Full-On, Psytrance, Progressive, Darkpsy, Hi-Tech, Drum & Bass, Neurofunk, Jungle – je für Kick, Bass, Drums, Synth, Melodie, Gitarre, Vocal, Pad/FX
+  - 41 Sound-Design-Presets
+- Jedes Preset benennt seine Macros (z. B. „Variante“ / „Helligkeit“), die Namen stehen am XY-Pad
 
 **Latenz:** konstant 2115 Samples (ca. 44 ms bei 48 kHz), Cubase gleicht das automatisch aus.
 

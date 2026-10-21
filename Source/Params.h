@@ -35,6 +35,10 @@ namespace liq
     juce::StringArray scrubModeNames();     // Free + divisions
     juce::StringArray morphAlgoNames();
     juce::StringArray modelerModeNames();
+    juce::StringArray melodyStyleNames();
+    juce::StringArray melodyTriggerNames();
+    juce::StringArray melodyLengthNames();
+    int melodyLengthSteps (int index);
     double scrubModeBeats (int index);      // 0 for Free
 
     enum RateMode     { rateFree = 0, rateSynced, rateStraight, rateTriplet, rateDotted, rateScale, rateMidi };
@@ -52,7 +56,6 @@ namespace liq
     enum ModType      { modLfo = 0, modSequencer, modEnvelope };
     enum Routing      { routePost = 0, routePre };
     enum MorphSource  { srcAux = 0, srcModeler };
-    enum AnimTarget   { animToMorph = 0, animToMacros };
     constexpr int numMixChannels = 4;
 
     constexpr int numIntervals   = 6;
@@ -100,7 +103,13 @@ namespace liq
         // animator / macros
         inline const juce::String macro1 { "macro1" }, macro2 { "macro2" }, animDepth { "animDepth" },
             animDrift { "animDrift" }, animMode { "animMode" }, animCycles { "animCycles" }, animWarp { "animWarp" },
-            animRate { "animRate" }, animSync { "animSync" }, animDiv { "animDiv" }, animTarget { "animTarget" };
+            animRate { "animRate" }, animSync { "animSync" }, animDiv { "animDiv" };
+        // morph pad motion (separate from the macro animator)
+        inline const juce::String mmDepth { "mmDepth" }, mmRate { "mmRate" }, mmSync { "mmSync" }, mmDiv { "mmDiv" },
+            mmMode { "mmMode" };
+        // melody generator
+        inline const juce::String mlStyle { "mlStyle" }, mlVar { "mlVar" }, mlDensity { "mlDensity" }, mlRange { "mlRange" },
+            mlLength { "mlLength" }, mlTrigger { "mlTrigger" }, mlGlide { "mlGlide" }, mlSens { "mlSens" };
         // morph / formant
         inline const juce::String morphOn { "morphOn" }, morphSrc { "morphSrc" }, morphX { "morphX" },
             morphY { "morphY" }, morphAlgo { "morphAlgo" }, morphGamma { "morphGamma" }, morphDetail { "morphDetail" },

@@ -51,8 +51,10 @@ set(LIQ_DSP_SOURCES
     Source/dsp/SpectralMorph.cpp
     Source/dsp/Modeler.cpp
     Source/dsp/Dynamics.cpp
+    Source/dsp/Melody.cpp
     Source/Params.cpp
-    Source/Presets.cpp)
+    Source/Presets.cpp
+    Source/GenrePresets.cpp)
 
 if(LIQ_BUILD_PLUGIN)
 set(LIQ_FORMATS VST3 Standalone)
@@ -89,7 +91,9 @@ target_sources(Liquidation PRIVATE
     Source/ui/Widgets.cpp
     Source/ui/WaveformDisplay.cpp
     Source/ui/Blocks.cpp
-    Source/ui/Panels.cpp)
+    Source/ui/Panels.cpp
+    Source/ui/HelpTexts.cpp
+    Source/ui/PlayPage.cpp)
 
 target_include_directories(Liquidation PRIVATE Source)
 
@@ -152,7 +156,9 @@ if(LIQ_BUILD_SNAPSHOT)
         Source/ui/Widgets.cpp
         Source/ui/WaveformDisplay.cpp
         Source/ui/Blocks.cpp
-        Source/ui/Panels.cpp)
+        Source/ui/Panels.cpp
+    Source/ui/HelpTexts.cpp
+    Source/ui/PlayPage.cpp)
     target_include_directories(LiquidationSnapshot PRIVATE Source)
     target_compile_definitions(LiquidationSnapshot PRIVATE
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1

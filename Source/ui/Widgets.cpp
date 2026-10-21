@@ -23,13 +23,14 @@ Knob::Knob (Ctx& c, const juce::String& pid, const juce::String& l)
 
     param = ctx.apvts.getParameter (paramId);
     jassert (param != nullptr);
+    getProperties().set ("helpId", paramId);
     if (param != nullptr)
     {
         const auto range = param->getNormalisableRange();
         ks->getProperties().set ("bipolar", range.start < 0.0f && range.end > 0.0f);
         attachment = std::make_unique<APVTS::SliderAttachment> (ctx.apvts, paramId, *ks);
         ks->setDoubleClickReturnValue (true, range.convertFrom0to1 (param->getDefaultValue()));
-        setTooltip (param->getName (64) + "\nDrag a modulator here to modulate. Right-click for options.");
+
     }
 }
 
@@ -140,16 +141,14 @@ ParamToggle::ParamToggle (APVTS& s, const juce::String& pid, const juce::String&
     setButtonText (buttonText);
     setClickingTogglesState (true);
     attachment = std::make_unique<APVTS::ButtonAttachment> (s, pid, *this);
-    if (auto* p = s.getParameter (pid)) setTooltip (p->getName (64));
+    getProperties().set ("helpId", pid);
 }
 
 ParamCombo::ParamCombo (APVTS& s, const juce::String& pid)
 {
     if (auto* p = dynamic_cast<juce::AudioParameterChoice*> (s.getParameter (pid)))
-    {
         addItemList (p->choices, 1);
-        setTooltip (p->getName (64));
-    }
+    getProperties().set ("helpId", pid);
     attachment = std::make_unique<APVTS::ComboBoxAttachment> (s, pid, *this);
 }
 

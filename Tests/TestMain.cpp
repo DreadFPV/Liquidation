@@ -46,6 +46,13 @@ namespace
     }
 
     float melody (int64_t n, int ch);
+    int presetIndex (const char* name)
+    {
+        const auto& f = liq::PresetManager::factory();
+        for (int i = 0; i < (int) f.size(); ++i) if (f[(size_t) i].name == juce::String::fromUTF8 (name)) return i;
+        std::printf ("  missing preset %s\n", name);
+        return 0;
+    }
     float melodyMono (int64_t n) { return melody (n, 0); }
     float sine (int64_t n, double hz, float amp = 0.5f) { return amp * (float) std::sin (2.0 * juce::MathConstants<double>::pi * hz * n / 48000.0); }
 
@@ -113,14 +120,15 @@ int main()
         proc.apvts.getParameter (id::macro1)->setValueNotifyingHost (0.6f);
         proc.apvts.getParameter (id::macro2)->setValueNotifyingHost (0.6f);
         if (f[(size_t) i].name.contains ("MIDI")) proc.engine.noteOn (57);
-        auto r = run (proc, 4.0, melody);
+        auto r = run (proc, 2.5, melody);
         proc.engine.noteOff (57);
-        const double load = r.seconds / 4.0 * 100.0;
+        const double load = r.seconds / 2.5 * 100.0;
         worst = std::max (worst, load);
         std::printf ("  %-22s peak %6.3f rms %6.3f cpu %5.1f%%\n", f[(size_t) i].name.toRawUTF8(), r.peak, r.rms, load);
         CHECK (r.finite, (f[(size_t) i].name + " finite").toRawUTF8());
         CHECK (r.peak < 6.0f, (f[(size_t) i].name + " bounded").toRawUTF8());
-        CHECK (r.rms > 0.005f, (f[(size_t) i].name + " audible").toRawUTF8());
+        if (f[(size_t) i].source != "Kick")   // kick presets are checked with a kick below
+            CHECK (r.rms > 0.005f, (f[(size_t) i].name + " audible").toRawUTF8());
     }
     std::printf ("  worst single-core load %.1f%%\n", worst);
 
@@ -264,7 +272,7 @@ int main()
             LiquidationProcessor q;
             q.setPlayConfigDetails (2, 2, 48000.0, 512);
             q.prepareToPlay (48000.0, 512);
-            q.presets.load (8);   // Endless Freeze smears the attack
+            q.presets.load (presetIndex ("Endless Freeze"));   // smears the attack
             auto* p = q.apvts.getParameter (id::trOn); p->setValueNotifyingHost (tr ? 1.0f : 0.0f);
             q.apvts.getParameter (id::fx (4, "On"))->setValueNotifyingHost (0.0f);   // compare without the reverb
             std::vector<float> in;
@@ -296,6 +304,99 @@ int main()
         CHECK (pk <= 0.9662f, "limiter holds the ceiling");
     }
 
+    std::printf ("Melody generator\n");
+    {
+        int notesOutside = 0, total = 0, empty = 0;
+        for (int sc : { 2, 6, 13, 0, 11 })
+        {
+            Scale scale; scale.set (Scale::presetMask (sc, 9), 9, 440.0f);
+            for (int style = 0; style < mlNumStyles; ++style)
+                for (int var = 1; var <= 99; var += 7)
+                    for (int len : { 16, 32, 64 })
+                    {
+                        MelodySettings ms; ms.style = style; ms.variation = var; ms.steps = len; ms.density = 0.6f; ms.range = 2;
+                        auto ph = generatePhrase (ms);
+                        int on = 0;
+                        for (int k = 0; k < ph.length; ++k)
+                        {
+                            const auto& st = ph.steps[(size_t) k];
+                            if (! st.on) continue;
+                            ++on; ++total;
+                            const int note = stepNote (st, scale, 57);
+                            if (! scale.contains (note)) ++notesOutside;
+                            if (note < 20 || note > 110) ++notesOutside;
+                        }
+                        if (on == 0) ++empty;
+                    }
+        }
+        std::printf ("  %d notes generated, %d outside scale/range, %d empty phrases\n", total, notesOutside, empty);
+        CHECK (notesOutside == 0, "every melody note is in the scale");
+        CHECK (empty == 0, "no empty phrase");
+        // determinism + variation
+        MelodySettings a; a.style = mlGoaLead; a.variation = 5;
+        MelodySettings b = a; b.variation = 6;
+        auto pa = generatePhrase (a), pa2 = generatePhrase (a), pb = generatePhrase (b);
+        bool same = true, differ = false;
+        for (int k = 0; k < 32; ++k)
+        {
+            same = same && pa.steps[(size_t) k].degree == pa2.steps[(size_t) k].degree && pa.steps[(size_t) k].on == pa2.steps[(size_t) k].on;
+            differ = differ || pa.steps[(size_t) k].degree != pb.steps[(size_t) k].degree || pa.steps[(size_t) k].on != pb.steps[(size_t) k].on;
+        }
+        CHECK (same, "same variation gives the same phrase");
+        CHECK (differ, "different variations give different phrases");
+    }
+
+    std::printf ("Kick -> melody\n");
+    {
+        auto kickOnly = [] (int64_t n) {
+            const double tk = (double) (n % 24000) / 48000.0;
+            return (float) (0.8 * std::exp (-tk * 18.0) * std::sin (2.0 * juce::MathConstants<double>::pi * (45.0 * tk + 140.0 / 40.0 * (1.0 - std::exp (-tk * 40.0))))); };
+        const auto& f = PresetManager::factory();
+        int tested = 0;
+        for (int i = 0; i < (int) f.size(); ++i)
+        {
+            if (f[(size_t) i].source != "Kick") continue;
+            LiquidationProcessor q;
+            q.setPlayConfigDetails (2, 2, 48000.0, 512);
+            q.prepareToPlay (48000.0, 512);
+            q.presets.load (i);
+            const int hitsBefore = q.onsets.hits.load();
+            std::vector<float> in;
+            auto out = liqtest::render (q, kickOnly, 4.0, &in);
+            // energy above the kick: compare output with the latency-aligned input
+            const int lat = q.getLatencySamples();
+            double extra = 0, ref = 0; bool finite = true; float pk = 0;
+            for (size_t k = 48000; k + (size_t) lat < out.size(); ++k)
+            {
+                const double d = out[k + (size_t) lat] - in[k];
+                extra += d * d; ref += (double) in[k] * in[k];
+                finite = finite && std::isfinite (out[k]); pk = std::max (pk, std::abs (out[k]));
+            }
+            const double addedDb = 10.0 * std::log10 (extra / ref);
+            const int hits = q.onsets.hits.load() - hitsBefore;
+            std::printf ("  %-26s added %6.1f dB  kicks seen %d  peak %.2f\n", f[(size_t) i].name.toRawUTF8(), addedDb, hits, pk);
+            CHECK (finite && pk < 1.0f, (f[(size_t) i].name + " bounded").toRawUTF8());
+            CHECK (addedDb > -20.0, (f[(size_t) i].name + " adds audible material").toRawUTF8());
+            ++tested;
+            if (f[(size_t) i].name == "Kick -> Step Melody") CHECK (hits >= 7, "kicks detected for Kick Step");
+        }
+        CHECK (tested >= 20, "kick presets present");
+    }
+
+    std::printf ("Preset metadata\n");
+    {
+        const auto& f = PresetManager::factory();
+        int noDesc = 0;
+        for (auto& p : f) if (p.description.isEmpty()) { ++noDesc; std::printf ("  no description: %s\n", p.name.toRawUTF8()); }
+        std::printf ("  %d presets, %d genres\n", (int) f.size(), (int) genres().size());
+        CHECK (noDesc == 0, "every preset has a description");
+        LiquidationProcessor q;
+        q.presets.load (presetIndex ("Kick -> Goa Lead"));
+        CHECK (q.macroName (1) == "Variante", "explicit macro names stored");
+        q.presets.load (presetIndex ("Endless Freeze"));
+        CHECK (q.macroName (1) != "Macro 1", "macro names derived from routing");
+    }
+
     std::printf ("Mono track\n");
     {
         LiquidationProcessor mono;
@@ -304,7 +405,7 @@ int main()
         layout.outputBuses.getReference (0) = juce::AudioChannelSet::mono();
         CHECK (mono.setBusesLayout (layout), "mono -> mono layout accepted");
         mono.prepareToPlay (48000.0, 512);
-        mono.presets.load (8);   // Endless Freeze
+        mono.presets.load (presetIndex ("Endless Freeze"));
         juce::AudioBuffer<float> b (1, 512); juce::MidiBuffer m;
         double diff = 0, ref = 0; bool finite = true;
         for (int64_t pos = 0; pos < 48000 * 3; pos += 512)
@@ -325,7 +426,7 @@ int main()
 
     std::printf ("State round trip\n");
     {
-        proc.presets.load (5);
+        proc.presets.load (presetIndex ("Goa - Kick -> Lead"));
         juce::MemoryBlock mb;
         proc.getStateInformation (mb);
         LiquidationProcessor other;
@@ -337,6 +438,7 @@ int main()
             if (std::abs (rp->getValue() - other.apvts.getParameter (rp->getParameterID())->getValue()) > 1e-4f) same = false;
         }
         CHECK (same, "state restores all parameters");
+        CHECK (other.macroName (1) == proc.macroName (1), "state restores macro names");
         std::printf ("  parameters: %d\n", (int) proc.getParameters().size());
     }
 

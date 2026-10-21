@@ -4,6 +4,7 @@
 #include "PluginProcessor.h"
 #include "ui/LiqLookAndFeel.h"
 #include "ui/Blocks.h"
+#include "ui/PlayPage.h"
 
 class LiquidationEditor : public juce::AudioProcessorEditor,
                           public juce::DragAndDropContainer,
@@ -17,13 +18,16 @@ public:
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
 
-    static constexpr int baseW = 1280, baseH = 800;
+    static constexpr int baseW = 1280, baseH = 840;
 
     // used by the snapshot tool
-    void openDetails (int page) { overlay->open (page); }
+    void openDetails (int page) { setPage (1); overlay->open (page); }
+    void setPage (int page);
+    int currentPage() const noexcept { return page; }
     void closeDetails() { overlay->close(); }
     void setHelpMode (bool on) { topBar->help.setToggleState (on, juce::sendNotification); }
     void showHelpFor (juce::Component* c);
+    void updateInfo (juce::Component*);
 
 private:
     void timerCallback() override;
@@ -45,6 +49,9 @@ private:
     std::unique_ptr<liq::ui::SignalCanvas> canvas;
     std::unique_ptr<liq::ui::ModBar> modBar;
     std::unique_ptr<liq::ui::DetailOverlay> overlay;
+    std::unique_ptr<liq::ui::PlayPage> playPage;
+    liq::ui::InfoBar infoBar;
+    int page = 0;
     liq::ui::HelpCard helpCard;
     juce::TooltipWindow tooltips { this, 500 };
     juce::Component* helpTarget = nullptr;

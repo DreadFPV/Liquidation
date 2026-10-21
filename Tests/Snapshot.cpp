@@ -62,6 +62,20 @@ int main (int argc, char** argv)
     };
 
     pump (25);
+    editor->setPage (0);
+    pump (10);
+    shot ("play");
+    {
+        const auto names = proc.presets.allNames();
+        for (int i = 0; i < names.size(); ++i)
+            if (names[i].contains ("Goa Lead")) { proc.presets.load (i); break; }
+        pump (40);
+        if (auto* c = editor->getComponentAt (900, 330)) editor->updateInfo (c);
+        pump (3);
+        shot ("play_melody");
+    }
+    editor->setPage (1);
+    pump (10);
     shot ("main");
     for (int page = 0; page < 4; ++page)
     {

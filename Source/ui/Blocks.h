@@ -333,7 +333,9 @@ public:
     void paint (juce::Graphics&) override;
     void update();
     void refreshPresetList();
-    juce::TextButton help { "?" };
+    juce::TextButton help { "?" }, playTab { "Play" }, editTab { "Edit" };
+    std::function<void (int)> onPage;   // 0 = Play, 1 = Edit
+    void setPage (int p);
 
 private:
     void savePreset();

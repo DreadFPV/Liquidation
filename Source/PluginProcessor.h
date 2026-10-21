@@ -51,8 +51,10 @@ public:
     liq::PresetManager presets;
     liq::GrainEngine engine;
     liq::ModSystem modSystem;
-    liq::Animator animator;
+    liq::Animator animator;        // moves Macro 1 / 2 (the XY pad on the Play page)
+    liq::Animator morphAnimator;   // moves the morph pad point
     liq::SpectralMorph morph;
+    liq::OnsetDetector onsets;
     liq::Modeler modeler;
     liq::TransientKeeper transients;
     liq::Limiter limiter;
@@ -74,6 +76,10 @@ public:
     // Full state (params + sequencer steps) for saving user presets
     juce::ValueTree fullState();
     void applyFullState (const juce::ValueTree& tree);
+
+    // macro names / hints set by presets (stored in the state)
+    juce::String macroName (int m) const;
+    juce::String macroHint (int m) const;
 
     // Real (modulated) value of a modulatable parameter, for display.
     float modulatedValue (const juce::String& paramId) const;
